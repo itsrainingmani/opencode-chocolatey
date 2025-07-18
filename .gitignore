@@ -1,0 +1,12 @@
+*.nupkg
+*.zip
+*.exe
+*.log
+.chocolatey/
+_output/
+temp/
+obj/
+.vs/
+.claude
+CLAUDE.md
+MAINTAINER.md

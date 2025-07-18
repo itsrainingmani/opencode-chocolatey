@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>opencode</id>
+    <version>0.3.17</version>
+    <packageSourceUrl>https://github.com/itsrainingmani/chocolatey-packages</packageSourceUrl>
+    <owners>itsrainingmani</owners>
+    <title>OpenCode</title>
+    <authors>SST</authors>
+    <projectUrl>https://opencode.ai/</projectUrl>
+    <iconUrl>https://opencode.ai/_astro/logo-ornate-dark.Dud6hvMG_19DKCs.svg</iconUrl>
+    <copyright>2025 SST</copyright>
+    <licenseUrl>https://github.com/sst/opencode/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/sst/opencode</projectSourceUrl>
+    <docsUrl>https://opencode.ai/docs/</docsUrl>
+    <bugTrackerUrl>https://github.com/sst/opencode/issues</bugTrackerUrl>
+    <tags>opencode ai coding terminal tui assistant development productivity</tags>
+    <summary>AI coding agent, built for the terminal</summary>
+    <description><![CDATA[
+# OpenCode
+
+OpenCode is an AI coding agent built for the terminal. It provides a native TUI (Terminal User Interface) for interacting with various AI models to help with coding tasks, debugging, and more.
+
+## Features
+
+- **Native TUI**: A responsive, native, themeable terminal UI
+- **LSP enabled**: Automatically loads the right LSPs for the LLM
+- **Multi-session**: Start multiple agents in parallel on the same project
+- **Shareable links**: Share a link to any sessions for reference or to debug
+- **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
+- **Use any model**: Supports 75+ LLM providers through Models.dev, including local models
+
+## Installation
+
+After installing via Chocolatey, you can start using OpenCode by running:
+
+```
+opencode
+```
+
+Or configure authentication:
+
+```
+opencode auth login
+```
+
+For more information, visit the [official documentation](https://opencode.ai/docs/).
+]]></description>
+    <releaseNotes>https://github.com/sst/opencode/releases/latest</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
