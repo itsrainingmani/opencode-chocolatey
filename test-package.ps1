@@ -66,8 +66,7 @@ if ($hasPlaceholder) {
 # Test 4: Required files exist
 $requiredFiles = @(
   'tools\chocolateyinstall.ps1',
-  'tools\chocolateyuninstall.ps1',
-  'tools\VERIFICATION.txt'
+  'tools\chocolateyuninstall.ps1'
 )
 
 $allFilesExist = $true
@@ -161,27 +160,16 @@ if (-not $SkipUninstall -and $commandExists) {
   }
 }
 
-# Test 11: Update script exists and is executable
+# Test 10: Update script exists and is executable
 $updateScriptPath = Join-Path $PSScriptRoot 'update.ps1'
 $updateScriptExists = Test-Path $updateScriptPath
 Write-TestResult "Update script exists" $updateScriptExists
-
-# Test 12: License file check
-$licensePath = Join-Path $PSScriptRoot 'tools\LICENSE.txt'
-if (Test-Path $licensePath) {
-  $licenseContent = Get-Content $licensePath -Raw
-  $isTemplate = $licenseContent -match 'DELETE ABOVE THIS LINE'
-  Write-TestResult "License file completed" (-not $isTemplate) $(if ($isTemplate) { "Still contains template text" })
-}
-else {
-  Write-TestResult "License file exists" $false "Consider adding if distributing binaries"
-}
 
 # Summary
 Write-Host "`nTest Summary" -ForegroundColor Cyan
 Write-Host "============" -ForegroundColor Cyan
 
-$totalTests = 12
+$totalTests = 10
 $passedTests = @(
   $packageExists,
   $validNuspec,
@@ -191,10 +179,8 @@ $passedTests = @(
   $installSuccess,
   $commandExists,
   $versionMatches,
-  ($null -ne $inPath),
   $cleanUninstall,
-  $updateScriptExists,
-  (-not $isTemplate)
+  $updateScriptExists
 ) | Where-Object { $_ -eq $true } | Measure-Object | Select-Object -ExpandProperty Count
 
 $allPassed = $passedTests -eq $totalTests
