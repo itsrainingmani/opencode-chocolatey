@@ -1,6 +1,6 @@
 # Chocolatey opencode
 
-This is a **Chocolatey package** repository for distributing [opencode](https://github.com/sst/opencode) on Windows
+This is a **Chocolatey package** repository for distributing [sst/opencode](https://github.com/sst/opencode) on Windows
 
 ## Commands
 

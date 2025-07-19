@@ -4,7 +4,6 @@ $toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 $packageName = 'opencode'
 $version = $env:chocolateyPackageVersion
 
-# Construct the download URL based on the package version
 $url64 = "https://github.com/sst/opencode/releases/download/v$version/opencode-windows-x64.zip"
 
 Write-Host "Installing OpenCode version $version"
@@ -17,46 +16,28 @@ $packageArgs = @{
   checksumType64 = 'sha256'
 }
 
-try {
-  # Check if the URL exists before attempting download
-  try {
-    Invoke-WebRequest -Uri $url64 -Method Head -UseBasicParsing
-  }
-  catch {
-    throw "OpenCode version $version not found at $url64. Please check if this version exists on GitHub."
-  }
+Install-ChocolateyZipPackage @packageArgs
 
-  # Install the package
-  Install-ChocolateyZipPackage @packageArgs
-    
-  # The zip should contain the opencode.exe at the root
-  $exePath = Join-Path $toolsDir 'opencode.exe'
-    
-  if (-not (Test-Path $exePath)) {
-    # Check if it's in a subdirectory
-    $exeFiles = Get-ChildItem -Path $toolsDir -Filter 'opencode.exe' -Recurse
-    if ($exeFiles.Count -gt 0) {
-      $sourceExe = $exeFiles[0].FullName
-      Move-Item -Path $sourceExe -Destination $exePath -Force
-            
-      # Clean up empty directories
-      $parentDir = Split-Path -Parent $sourceExe
-      if ((Get-ChildItem -Path $parentDir -Force).Count -eq 0) {
-        Remove-Item -Path $parentDir -Recurse -Force
-      }
-    }
-    else {
-      throw "opencode.exe not found in the extracted files"
+$exePath = Join-Path $toolsDir 'opencode.exe'
+
+if (-not (Test-Path $exePath)) {
+
+  $exeFiles = Get-ChildItem -Path $toolsDir -Filter 'opencode.exe' -Recurse
+  if ($exeFiles.Count -gt 0) {
+    $sourceExe = $exeFiles[0].FullName
+    Move-Item -Path $sourceExe -Destination $exePath -Force
+
+    $parentDir = Split-Path -Parent $sourceExe
+    if ((Get-ChildItem -Path $parentDir -Force).Count -eq 0) {
+      Remove-Item -Path $parentDir -Recurse -Force
     }
   }
-    
-  # Create shim
-  Install-BinFile -Name 'opencode' -Path $exePath
-    
-  Write-Host "OpenCode $version has been installed successfully!" -ForegroundColor Green
-  Write-Host "Run 'opencode' to start using it." -ForegroundColor Green
-    
+  else {
+    throw "opencode.exe not found in the extracted files"
+  }
 }
-catch {
-  throw "Failed to install OpenCode: $_"
-}
+
+Install-BinFile -Name 'opencode' -Path $exePath
+
+Write-Host "OpenCode $version has been installed successfully!" -ForegroundColor Green
+Write-Host "Run 'opencode' to start using it." -ForegroundColor Green

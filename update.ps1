@@ -41,13 +41,13 @@ try {
   $nuspec = [xml](Get-Content $nuspecPath)
   $currentVersion = $nuspec.package.metadata.version
   
-  # Determine which version to fetch
   if ($SpecificVersion) {
-    $targetVersion = $SpecificVersion
     $apiUrl = "https://api.github.com/repos/sst/opencode/releases/tags/v$SpecificVersion"
-  } elseif ($PreRelease) {
+  }
+  elseif ($PreRelease) {
     $apiUrl = 'https://api.github.com/repos/sst/opencode/releases'
-  } else {
+  }
+  else {
     $apiUrl = 'https://api.github.com/repos/sst/opencode/releases/latest'
   }
   
@@ -60,16 +60,18 @@ try {
     try {
       $headers = @{ 
         'User-Agent' = 'Chocolatey-Updater'
-        'Accept' = 'application/vnd.github.v3+json'
+        'Accept'     = 'application/vnd.github.v3+json'
       }
       
       if ($PreRelease -and -not $SpecificVersion) {
         $releases = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
         $releaseInfo = $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
-      } else {
+      }
+      else {
         $releaseInfo = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
       }
-    } catch {
+    }
+    catch {
       $retryCount++
       if ($retryCount -eq $maxRetries) {
         throw "Failed to fetch release info after $maxRetries attempts: $_"
@@ -89,15 +91,24 @@ try {
     exit 0
   }
   
-  if ($CheckOnly) {
-    Write-Log "Update available: $currentVersion -> $latestVersion" "Warning"
-    exit 1
-  }
-  
   # Find the Windows x64 asset
   $asset = $releaseInfo.assets | Where-Object { $_.name -eq 'opencode-windows-x64.zip' }
   if (-not $asset) {
+    Write-Log "Windows x64 asset not available in release $latestVersion" "Warning"
+    Write-Log "Release assets found: $($releaseInfo.assets.name -join ', ')" "Info"
+    
+    if ($CheckOnly) {
+      # Exit with code 2 to indicate no update available due to missing asset
+      exit 2
+    }
+    
     throw "Could not find Windows x64 asset in the release"
+  }
+  
+  if ($CheckOnly) {
+    Write-Log "Update available: $currentVersion -> $latestVersion" "Warning"
+    Write-Log "Windows x64 asset is available for download" "Success"
+    exit 1
   }
   
   Write-Log "Downloading release to calculate checksum..." "Info"
@@ -159,17 +170,6 @@ try {
     Set-Content -Path $installScriptPath -Value $installScript -NoNewline
     Write-Log "Updated checksum in chocolateyinstall.ps1" "Success"
     
-    # Update version in VERIFICATION.txt
-    $verificationPath = Join-Path $PSScriptRoot 'tools\VERIFICATION.txt'
-    if (Test-Path $verificationPath) {
-      $verification = Get-Content $verificationPath -Raw
-      $verification = $verification -replace "checksum64: \[.*\]|checksum64: [A-F0-9]{64}", "checksum64: $checksum"
-      $verification = $verification -replace "version: \d+\.\d+\.\d+", "version: $latestVersion"
-      $verification = $verification -replace "v\d+\.\d+\.\d+", "v$latestVersion"
-      Set-Content -Path $verificationPath -Value $verification -NoNewline
-      Write-Log "Updated VERIFICATION.txt" "Success"
-    }
-    
     # Auto-commit if requested
     if ($AutoCommit) {
       Write-Log "Creating git commit..." "Info"
@@ -190,7 +190,8 @@ try {
       Remove-Item $backupDir -Recurse -Force
     }
     
-  } catch {
+  }
+  catch {
     Write-Log "Error during update: $_" "Error"
     
     # Restore from backup if it exists
@@ -201,7 +202,8 @@ try {
     }
     
     throw
-  } finally {
+  }
+  finally {
     # Clean up temp file
     if (Test-Path $tempFile) {
       Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
@@ -213,7 +215,8 @@ try {
     }
   }
   
-} catch {
+}
+catch {
   Write-Log $_.Exception.Message "Error"
   exit 1
 }
