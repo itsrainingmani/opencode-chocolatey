@@ -157,6 +157,10 @@ try {
     
     # Update nuspec version
     $nuspec.package.metadata.version = $latestVersion
+    
+    # Update releaseNotes URL
+    $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$latestVersion"
+    
     $nuspec.Save($nuspecPath)
     Write-Log "Updated nuspec to version $latestVersion" "Success"
     

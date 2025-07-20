@@ -14,8 +14,8 @@ This is a **Chocolatey package** repository for distributing [sst/opencode](http
 # Build the package
 choco pack
 
-# Test installation locally
-choco install opencode -dvy -s .
+# Test installation locally (while downloading dependencies from chocolatey)
+choco install opencode -dy --source="'.,https://community.chocolatey.org/api/v2/'"
 
 # Test the installed application
 opencode --version
