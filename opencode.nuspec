@@ -8,7 +8,7 @@
     <title>opencode</title>
     <authors>SST</authors>
     <projectUrl>https://opencode.ai/</projectUrl>
-    <iconUrl>https://opencode.ai/_astro/logo-ornate-dark.Dud6hvMG_19DKCs.svg</iconUrl>
+    <iconUrl>https://opencode.ai/favicon.svg</iconUrl>
     <copyright>2025 opencode</copyright>
     <licenseUrl>https://github.com/sst/opencode/blob/dev/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -18,22 +18,22 @@
     <tags>opencode ai coding terminal tui assistant development productivity</tags>
     <summary>AI coding agent, built for the terminal</summary>
     <description><![CDATA[
-# OpenCode
+# opencode
 
-OpenCode is an AI coding agent built for the terminal. It provides a native TUI (Terminal User Interface) for interacting with various AI models to help with coding tasks, debugging, and more.
+[opencode](https://opencode.ai) is an AI coding agent built for the terminal. It provides a native TUI (Terminal User Interface) for interacting with various AI models to help with coding tasks, debugging, and more.
 
 ## Features
 
 - **Native TUI**: A responsive, native, themeable terminal UI
-- **LSP enabled**: Automatically loads the right LSPs for the LLM
+- **LSP enabled**: Automatically loads the right LSPs, so the LLMs make fewer mistakes
 - **Multi-session**: Start multiple agents in parallel on the same project
 - **Shareable links**: Share a link to any sessions for reference or to debug
 - **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
-- **Use any model**: Supports 75+ LLM providers through Models.dev, including local models
+- **Use any model**: Supports 75+ LLM providers through [Models.dev](https://models.dev), including local models
 
-## Installation
+## Usage
 
-After installing via Chocolatey, you can start using OpenCode by running:
+After installing via Chocolatey, you can start using opencode by running:
 
 ```
 opencode
