@@ -2,6 +2,7 @@
 
 $packageName = 'opencode'
 $toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
+$version = $env:chocolateyPackageVersion
 
 Uninstall-BinFile -Name $packageName
 
@@ -10,4 +11,4 @@ if (Test-Path $exePath) {
   Remove-Item -Path $exePath -Force
 }
 
-Write-Host "OpenCode has been uninstalled." -ForegroundColor Green
+Write-Host "opencode $version has been uninstalled." -ForegroundColor Green
