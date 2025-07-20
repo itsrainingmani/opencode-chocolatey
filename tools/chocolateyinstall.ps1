@@ -6,7 +6,7 @@ $version = $env:chocolateyPackageVersion
 
 $url64 = "https://github.com/sst/opencode/releases/download/v$version/opencode-windows-x64.zip"
 
-Write-Host "Installing OpenCode version $version"
+Write-Host "opencode $version"
 
 $packageArgs = @{
   packageName    = $packageName
@@ -38,5 +38,5 @@ if (-not (Test-Path $exePath)) {
 }
 
 Install-BinFile -Name 'opencode' -Path $exePath
-Write-Host "OpenCode $version has been installed successfully!" -ForegroundColor Green
+Write-Host "opencode $version has been installed successfully!" -ForegroundColor Green
 Write-Host "Run 'opencode' to start using it." -ForegroundColor Green

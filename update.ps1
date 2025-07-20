@@ -123,7 +123,7 @@ try {
     # Register event for progress
     $eventDataComplete = Register-ObjectEvent -InputObject $webClient -EventName DownloadProgressChanged -SourceIdentifier WebClient.DownloadProgressChanged -Action {
       $percent = $EventArgs.ProgressPercentage
-      Write-Progress -Activity "Downloading OpenCode $latestVersion" -Status "$percent% Complete" -PercentComplete $percent
+      Write-Progress -Activity "Downloading opencode $latestVersion" -Status "$percent% Complete" -PercentComplete $percent
     }
     
     $webClient.DownloadFileAsync($asset.browser_download_url, $tempFile)
@@ -178,7 +178,7 @@ try {
     if ($AutoCommit) {
       Write-Log "Creating git commit..." "Info"
       git add $nuspecPath $installScriptPath $verificationPath 2>$null
-      git commit -m "Update OpenCode to v$latestVersion" -m "- Updated version from $currentVersion to $latestVersion" -m "- Updated SHA256 checksum: $checksum" 2>$null
+      git commit -m "Update opencode to v$latestVersion" -m "- Updated version from $currentVersion to $latestVersion" -m "- Updated SHA256 checksum: $checksum" 2>$null
       Write-Log "Changes committed to git" "Success"
     }
     
@@ -186,7 +186,7 @@ try {
     Write-Log "Next steps:" "Info"
     Write-Log "  1. Review the changes" "Info"
     Write-Log "  2. Run 'choco pack' to create the package" "Info"
-    Write-Log "  3. Test locally with 'choco install opencode -dvy -s . --force'" "Info"
+    Write-Log "  3. Test locally with 'choco install opencode -dy --source="'.,https://community.chocolatey.org/api/v2/'"" "Info"
     Write-Log "  4. Push to Chocolatey with 'choco push opencode.$latestVersion.nupkg'" "Info"
     
     # Clean up backup if everything succeeded

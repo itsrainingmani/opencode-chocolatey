@@ -1,4 +1,4 @@
-# Comprehensive test suite for the OpenCode Chocolatey package
+# Comprehensive test suite for the opencode Chocolatey package
 param(
   [switch]$SkipUninstall,
   [switch]$Verbose
@@ -29,7 +29,7 @@ function Write-TestResult {
   }
 }
 
-Write-Host "`nOpenCode Chocolatey Package Test Suite" -ForegroundColor Cyan
+Write-Host "`nopencode Chocolatey Package Test Suite" -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 
 # Test 1: Package file exists
@@ -124,7 +124,7 @@ catch {
 
 # Test 7: Verify installation
 $commandExists = Test-Command 'opencode.exe'
-Write-TestResult "OpenCode command available" $commandExists
+Write-TestResult "opencode command available" $commandExists
 
 # Test 8: Version check
 if ($commandExists) {
