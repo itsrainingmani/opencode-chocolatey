@@ -12,7 +12,7 @@ $packageArgs = @{
   packageName    = $packageName
   unzipLocation  = $toolsDir
   url64bit       = $url64
-  checksum64     = '822FE1A8EF255E0FB3FA14F60842FE84CE56E97DB4A56C9E5C9E03CBEA4149F2'  # This should be updated by the update script
+  checksum64     = 'B794B6AB2323B0CD09AFABC7AC6A72948B6E13E39BE780C8C3D87D81956503FA'  # This should be updated by the update script
   checksumType64 = 'sha256'
 }
 
@@ -38,6 +38,5 @@ if (-not (Test-Path $exePath)) {
 }
 
 Install-BinFile -Name 'opencode' -Path $exePath
-
 Write-Host "OpenCode $version has been installed successfully!" -ForegroundColor Green
 Write-Host "Run 'opencode' to start using it." -ForegroundColor Green
