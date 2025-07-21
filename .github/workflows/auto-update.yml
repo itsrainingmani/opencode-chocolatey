@@ -1,0 +1,139 @@
+name: Auto Update opencode Package
+
+on:
+  schedule:
+    # Run every 15 mins
+    - cron: '0,15,30,45 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force update even if version matches'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  check-and-update:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup PowerShell
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+
+      - name: Check for updates
+        id: check
+        shell: pwsh
+        run: |
+          $updateScript = Join-Path $env:GITHUB_WORKSPACE 'update.ps1'
+
+          try {
+            & $updateScript -CheckOnly
+            # Exit code 0 means up to date
+            echo "UPDATE_AVAILABLE=false" >> $env:GITHUB_OUTPUT
+            echo "ASSET_AVAILABLE=true" >> $env:GITHUB_OUTPUT
+          } catch {
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 1) {
+              # Exit code 1 means update available with Windows asset
+              echo "UPDATE_AVAILABLE=true" >> $env:GITHUB_OUTPUT
+              echo "ASSET_AVAILABLE=true" >> $env:GITHUB_OUTPUT
+            } elseif ($exitCode -eq 2) {
+              # Exit code 2 means update available but no Windows asset
+              echo "UPDATE_AVAILABLE=false" >> $env:GITHUB_OUTPUT
+              echo "ASSET_AVAILABLE=false" >> $env:GITHUB_OUTPUT
+              Write-Host "::warning::New version available but Windows x64 asset not found. Skipping update."
+            } else {
+              # Other error
+              echo "UPDATE_AVAILABLE=false" >> $env:GITHUB_OUTPUT
+              echo "ASSET_AVAILABLE=false" >> $env:GITHUB_OUTPUT
+              Write-Host "::error::Update check failed with exit code $exitCode"
+            }
+          }
+
+      - name: Get current version
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        id: current
+        shell: pwsh
+        run: |
+          $nuspec = [xml](Get-Content 'opencode.nuspec')
+          $version = $nuspec.package.metadata.version
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Update package
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        shell: pwsh
+        run: |
+          $forceParam = if ('${{ github.event.inputs.force }}' -eq 'true') { '-Force' } else { '' }
+          & .\update.ps1 $forceParam
+
+      - name: Get new version
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        id: new
+        shell: pwsh
+        run: |
+          $nuspec = [xml](Get-Content 'opencode.nuspec')
+          $version = $nuspec.package.metadata.version
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install Chocolatey
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: Pack and test
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        shell: pwsh
+        run: |
+          choco pack
+          choco install opencode -dvy -s . --force
+          opencode --version
+
+      - name: Create Pull Request
+        if: (steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true') || github.event.inputs.force == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'Update opencode from v${{ steps.current.outputs.VERSION }} to v${{ steps.new.outputs.VERSION }}'
+          title: 'Update opencode to v${{ steps.new.outputs.VERSION }}'
+          body: |
+            This PR updates opencode from v${{ steps.current.outputs.VERSION }} to v${{ steps.new.outputs.VERSION }}.
+
+            ## Changes
+            - Updated version in `opencode.nuspec`
+            - Updated checksum in `tools/chocolateyinstall.ps1`
+
+            ## Testing
+            - [x] Package builds successfully
+            - [x] Local installation test passed
+
+            Please review and merge to trigger the publish workflow.
+          branch: update-opencode-${{ steps.new.outputs.VERSION }}
+          delete-branch: true
+          labels: |
+            update
+            automated
+
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          if ('${{ steps.check.outputs.UPDATE_AVAILABLE }}' -eq 'false' -and '${{ steps.check.outputs.ASSET_AVAILABLE }}' -eq 'false') {
+            Write-Host "::notice::Update check found a new version but Windows x64 asset is not yet available. Will retry on next schedule."
+          } elseif ('${{ steps.check.outputs.UPDATE_AVAILABLE }}' -eq 'false') {
+            Write-Host "::notice::opencode is already up to date."
+          } elseif ('${{ steps.check.outputs.UPDATE_AVAILABLE }}' -eq 'true') {
+            Write-Host "::notice::opencode update process completed successfully."
+          }
