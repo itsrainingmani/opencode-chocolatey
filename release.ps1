@@ -193,13 +193,13 @@ try {
         $CommitMessage 
     }
     else { 
-        "Release opencode v$Version"
+        "update to v$Version"
     }
     
     # Create git commit
     Write-Log "Creating git commit..." "Info"
     git add opencode.nuspec tools/chocolateyinstall.ps1
-    git commit -m $finalCommitMessage -m "- Updated from version $currentVersion to $Version" -m "- Updated checksums and release notes"
+    git commit -m $finalCommitMessage -m "- Updated from version $currentVersion to $Version"
     
     if ($LASTEXITCODE -ne 0) {
         Write-Log "Git commit failed" "Error"
@@ -249,7 +249,8 @@ try {
         else {
             if ($previousTag) {
                 "**Full Changelog**: https://github.com/itsrainingmani/opencode-chocolatey/compare/$previousTag...$tagName"
-            } else {
+            }
+            else {
                 "Initial release"
             }
         }
