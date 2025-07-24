@@ -186,7 +186,7 @@ try {
     Write-Log "Next steps:" "Info"
     Write-Log "  1. Review the changes" "Info"
     Write-Log "  2. Run 'choco pack' to create the package" "Info"
-    Write-Log "  3. Test locally with 'choco install opencode -dy --source="'.,https://community.chocolatey.org/api/v2/'"" "Info"
+    Write-Log "  3. Test locally with 'choco install opencode -dy --source=`"'.,https://community.chocolatey.org/api/v2/'`"" "Info"
     Write-Log "  4. Push to Chocolatey with 'choco push opencode.$latestVersion.nupkg'" "Info"
     
     # Clean up backup if everything succeeded
