@@ -74,7 +74,7 @@ jobs:
       # ------------------------------
       - name: Get current version from opencode.nuspec
         id: current
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
           [xml]$nuspec = Get-Content 'opencode.nuspec'
           "VERSION=$($nuspec.package.metadata.version)" >> $env:GITHUB_OUTPUT
@@ -83,7 +83,7 @@ jobs:
       # 3) Run update.ps1 (if necessary / forced)
       # ------------------------------
       - name: Update package files
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
           $args = @()
           if ($env:FORCE_UPDATE -eq 'true') { $args += '-Force' }
@@ -94,7 +94,7 @@ jobs:
       # ------------------------------
       - name: Get new version from opencode.nuspec
         id: new
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
           [xml]$nuspec = Get-Content 'opencode.nuspec'
           "VERSION=$($nuspec.package.metadata.version)" >> $env:GITHUB_OUTPUT
@@ -103,14 +103,14 @@ jobs:
       # 5) Prepare & test Chocolatey package
       # ------------------------------
       - name: Cache Chocolatey packages
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         uses: actions/cache@v4
         with:
           path: C:\Users\runneradmin\AppData\Local\Temp\chocolatey
           key: choco-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install Chocolatey (if missing)
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
           if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
@@ -118,7 +118,7 @@ jobs:
           }
 
       - name: Pack & local-test the package
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
           choco pack --yes
           choco install opencode -dy --source="'.,https://community.chocolatey.org/api/v2/'"
@@ -128,7 +128,7 @@ jobs:
       # 6) Create PR
       # ------------------------------
       - name: Create Pull Request
-        if: ${{ needs.check-and-update.outputs.should_proceed == 'true' }}
+        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
