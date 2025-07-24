@@ -234,31 +234,24 @@ try {
     
     # Create GitHub release if GitHub CLI is available
     if ($hasGitHub) {
-        $releaseTitle = "opencode v$Version"
+        $releaseTitle = "v$Version"
+        
+        # Get previous tag for compare link
+        $previousTag = git describe --tags --abbrev=0 HEAD~1 2>$null
+        if (-not $previousTag) {
+            # If no previous tag, try to get the first commit
+            $previousTag = git rev-list --max-parents=0 HEAD 2>$null
+        }
+        
         $finalReleaseNotes = if ($ReleaseNotes) {
             $ReleaseNotes
         }
         else {
-            @"
-# opencode Chocolatey Package v$Version
-
-Updated opencode from v$currentVersion to v$Version.
-
-## Changes
-- Updated package version to $Version
-- Updated SHA256 checksums
-- Updated release notes URL
-
-## Installation
-``````
-choco install opencode
-``````
-
-## Upgrade
-``````
-choco upgrade opencode
-``````
-"@
+            if ($previousTag) {
+                "**Full Changelog**: https://github.com/itsrainingmani/opencode-chocolatey/compare/$previousTag...$tagName"
+            } else {
+                "Initial release"
+            }
         }
         
         $releaseCreated = New-GitHubRelease -TagName $tagName -Title $releaseTitle -Notes $finalReleaseNotes -PackageFile $packageFile
