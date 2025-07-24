@@ -128,7 +128,7 @@ function New-GitHubRelease {
         }
         
         Write-Log "Creating GitHub release..." "Info"
-        & gh @args
+        & gh @packageArgs
         
         if ($LASTEXITCODE -eq 0) {
             Write-Log "GitHub release created successfully" "Success"
