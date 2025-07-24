@@ -1,0 +1,142 @@
+name: Publish to Chocolatey
+
+on:
+  push:
+    tags:
+      - 'v*'  # Only trigger on version tags, not direct pushes
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (if different from nuspec)'
+        required: false
+        type: string
+
+concurrency:
+  group: opencode-publish
+  cancel-in-progress: false  # Don't cancel publish jobs
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get package version
+        id: version
+        shell: pwsh
+        run: |
+          # Use input version if provided, otherwise get from nuspec
+          if ('${{ inputs.version }}') {
+            $version = '${{ inputs.version }}'
+            Write-Host "Using input version: $version"
+          } else {
+            $nuspec = [xml](Get-Content 'opencode.nuspec')
+            $version = $nuspec.package.metadata.version
+            Write-Host "Using nuspec version: $version"
+          }
+          
+          # Extract version from tag if triggered by tag push
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $tagVersion = '${{ github.ref_name }}' -replace '^v', ''
+            Write-Host "Tag version: $tagVersion"
+            
+            # Verify tag version matches nuspec version
+            if ($tagVersion -ne $version) {
+              Write-Host "::warning::Tag version ($tagVersion) doesn't match nuspec version ($version)"
+            }
+          }
+          
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+          "PACKAGE_FILE=opencode.$version.nupkg" >> $env:GITHUB_OUTPUT
+
+      - name: Install Chocolatey
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: Pack package
+        shell: pwsh
+        run: choco pack
+
+      - name: Test package
+        shell: pwsh
+        run: |
+          choco install opencode -dvy -s . --force
+          $installedVersion = opencode --version
+          Write-Host "Installed version: $installedVersion"
+
+          # Verify version matches
+          if ($installedVersion -notmatch '${{ steps.version.outputs.VERSION }}') {
+            throw "Version mismatch: expected ${{ steps.version.outputs.VERSION }}, got $installedVersion"
+          }
+
+      - name: Check if package already exists
+        id: check_exists
+        shell: pwsh
+        run: |
+          try {
+            $packageInfo = choco search opencode --exact --source=https://community.chocolatey.org/api/v2/ --limit-output
+            $publishedVersion = ($packageInfo -split '\|')[1]
+            
+            if ($publishedVersion -eq '${{ steps.version.outputs.VERSION }}') {
+              Write-Host "::warning::Package version ${{ steps.version.outputs.VERSION }} already exists on Chocolatey"
+              "ALREADY_EXISTS=true" >> $env:GITHUB_OUTPUT
+            } else {
+              Write-Host "Package version ${{ steps.version.outputs.VERSION }} not found, proceeding with publish"
+              "ALREADY_EXISTS=false" >> $env:GITHUB_OUTPUT
+            }
+          } catch {
+            Write-Host "Could not check existing packages, assuming new version"
+            "ALREADY_EXISTS=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Push to Chocolatey
+        if: steps.check_exists.outputs.ALREADY_EXISTS == 'false'
+        shell: pwsh
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          if (-not $env:CHOCO_API_KEY) {
+            throw "CHOCO_API_KEY secret not configured"
+          }
+
+          choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/
+          choco push ${{ steps.version.outputs.PACKAGE_FILE }} -s https://push.chocolatey.org/
+
+      - name: Create GitHub Release
+        if: steps.check_exists.outputs.ALREADY_EXISTS == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}  # Use the existing tag
+          name: opencode Chocolatey Package v${{ steps.version.outputs.VERSION }}
+          body: |
+            # opencode Chocolatey Package v${{ steps.version.outputs.VERSION }}
+            
+            This release publishes opencode v${{ steps.version.outputs.VERSION }} to the Chocolatey Community Repository.
+
+            ## Installation
+            ```powershell
+            choco install opencode
+            ```
+
+            ## Upgrade
+            ```powershell
+            choco upgrade opencode
+            ```
+            
+            ## Package Information
+            - **Version**: ${{ steps.version.outputs.VERSION }}
+            - **Package File**: ${{ steps.version.outputs.PACKAGE_FILE }}
+            - **Chocolatey Package**: https://community.chocolatey.org/packages/opencode
+          files: ${{ steps.version.outputs.PACKAGE_FILE }}
+          draft: false
+          prerelease: false
+
+      - name: Skip notification
+        if: steps.check_exists.outputs.ALREADY_EXISTS == 'true'
+        run: |
+          Write-Host "::notice::Package version ${{ steps.version.outputs.VERSION }} already exists, skipping publish"
