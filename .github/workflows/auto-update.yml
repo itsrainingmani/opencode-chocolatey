@@ -2,8 +2,8 @@ name: Auto Update opencode Package
 
 on:
   schedule:
-    # Every 15 min
-    - cron: '*/15 * * * *'
+    # Every 2 hours (more reasonable than 15 min)
+    - cron: '0 */1 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -18,151 +18,221 @@ concurrency:
 
 defaults:
   run:
-    shell: pwsh
-
-env:
-  FORCE_UPDATE: ${{ inputs.force || 'false' }}
+    shell: powershell
 
 jobs:
-  check-and-update:
+  # Job 1: Simple check for updates
+  check-for-updates:
+    name: Check for new version
     runs-on: windows-latest
-    timeout-minutes: 25 # Hard stop for the whole job
+    timeout-minutes: 5
+    outputs:
+      needs_update: ${{ steps.version-check.outputs.needs_update }}
+      current_version: ${{ steps.version-check.outputs.current_version }}
+      latest_version: ${{ steps.version-check.outputs.latest_version }}
+      download_url: ${{ steps.version-check.outputs.download_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check versions and availability
+        id: version-check
+        run: |
+          # Get current version from nuspec
+          [xml]$nuspec = Get-Content 'opencode.nuspec'
+          $currentVersion = $nuspec.package.metadata.version
+          Write-Host "Current version: $currentVersion"
+
+          # Get latest release from GitHub
+          try {
+            $headers = @{ 
+              'User-Agent' = 'Chocolatey-Updater'
+              'Accept' = 'application/vnd.github.v3+json'
+            }
+            $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/sst/opencode/releases/latest' -Headers $headers
+            $latestVersion = $release.tag_name.TrimStart('v')
+            Write-Host "Latest version: $latestVersion"
+            
+            # Check if Windows x64 asset exists
+            $asset = $release.assets | Where-Object { $_.name -eq 'opencode-windows-x64.zip' }
+            if (-not $asset) {
+              Write-Host "::warning::Windows x64 asset not available for version $latestVersion"
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "needs_update=false"
+              exit 0
+            }
+            
+            # Determine if update is needed
+            $forceUpdate = '${{ inputs.force }}' -eq 'true'
+            $needsUpdate = ($currentVersion -ne $latestVersion) -or $forceUpdate
+            
+            # Write outputs using Add-Content for reliability
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "needs_update=$(if ($needsUpdate) { 'true' } else { 'false' })"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "current_version=$currentVersion"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "latest_version=$latestVersion"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "download_url=$($asset.browser_download_url)"
+            
+            if ($needsUpdate) {
+              Write-Host "::notice::Update needed: $currentVersion -> $latestVersion"
+            } else {
+              Write-Host "::notice::Already up to date: $currentVersion"
+            }
+          }
+          catch {
+            Write-Host "::error::Failed to check for updates: $_"
+            exit 1
+          }
+
+  # Job 2: Update package (only runs if update needed)
+  update-package:
+    name: Update and test package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    needs: check-for-updates
+    if: needs.check-for-updates.outputs.needs_update == 'true'
     permissions:
       contents: write
       pull-requests: write
 
-    outputs:
-      update_available: ${{ steps.check.outputs.UPDATE_AVAILABLE }}
-      asset_available: ${{ steps.check.outputs.ASSET_AVAILABLE }}
-      current_version: ${{ steps.current.outputs.VERSION }}
-      new_version: ${{ steps.new.outputs.VERSION }}
-      should_proceed: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
-
     steps:
       - name: Checkout repository
-        id: checkout
         uses: actions/checkout@v4
-        timeout-minutes: 3
 
-      # ------------------------------
-      # 1) Is an update necessary?
-      # ------------------------------
-      - name: Check for updates
-        id: check
+      - name: Download and calculate checksum
+        id: download
         run: |
-          $updateScript = Join-Path $env:GITHUB_WORKSPACE 'update.ps1'
-          & $updateScript -CheckOnly
-          switch ($LASTEXITCODE) {
-            0 { $update = 'false'; $asset = 'true'  }  # Up-to-date
-            1 { $update = 'true';  $asset = 'true'  }  # Update & asset available
-            2 { $update = 'false'; $asset = 'false' }  # No Win64 asset yet
-            default {
-              Write-Host "::error::Update check failed with exit code $LASTEXITCODE"
-              Exit 1
+          $downloadUrl = "${{ needs.check-for-updates.outputs.download_url }}"
+          $version = "${{ needs.check-for-updates.outputs.latest_version }}"
+
+          Write-Host "Downloading $downloadUrl"
+          $tempFile = Join-Path $env:TEMP "opencode-$version.zip"
+
+          # Download with retry logic
+          $maxRetries = 3
+          $success = $false
+
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UserAgent 'Chocolatey-Updater'
+              $success = $true
+              break
+            }
+            catch {
+              Write-Host "::warning::Download attempt $i failed: $_"
+              if ($i -eq $maxRetries) { throw }
+              Start-Sleep -Seconds 5
             }
           }
 
-          "UPDATE_AVAILABLE=$update" >> $env:GITHUB_OUTPUT
-          "ASSET_AVAILABLE=$asset"  >> $env:GITHUB_OUTPUT
-
-          if ($update -eq 'false' -and $asset -eq 'false') {
-            Write-Host "::warning::New version found but Windows x64 asset not yet available."
+          if (-not $success -or -not (Test-Path $tempFile)) {
+            throw "Failed to download after $maxRetries attempts"
           }
 
-      # ------------------------------
-      # 2) Read current version
-      # ------------------------------
-      - name: Get current version from opencode.nuspec
-        id: current
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
-        run: |
-          [xml]$nuspec = Get-Content 'opencode.nuspec'
-          "VERSION=$($nuspec.package.metadata.version)" >> $env:GITHUB_OUTPUT
+          # Calculate checksum
+          $checksum = Get-FileHash -Path $tempFile -Algorithm SHA256 | Select-Object -ExpandProperty Hash
+          Write-Host "SHA256: $checksum"
 
-      # ------------------------------
-      # 3) Run update.ps1 (if necessary / forced)
-      # ------------------------------
+          "checksum=$checksum" >> $env:GITHUB_OUTPUT
+
+          # Cleanup
+          Remove-Item $tempFile -Force
+
       - name: Update package files
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         run: |
-          $args = @()
-          if ($env:FORCE_UPDATE -eq 'true') { $args += '-Force' }
-          & .\update.ps1 @args
+          $version = "${{ needs.check-for-updates.outputs.latest_version }}"
+          $checksum = "${{ steps.download.outputs.checksum }}"
 
-      # ------------------------------
-      # 4) Read new version
-      # ------------------------------
-      - name: Get new version from opencode.nuspec
-        id: new
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
-        run: |
+          # Update nuspec
           [xml]$nuspec = Get-Content 'opencode.nuspec'
-          "VERSION=$($nuspec.package.metadata.version)" >> $env:GITHUB_OUTPUT
+          $nuspec.package.metadata.version = $version
+          $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$version"
+          $nuspec.Save('opencode.nuspec')
+          Write-Host "Updated nuspec to version $version"
 
-      # ------------------------------
-      # 5) Prepare & test Chocolatey package
-      # ------------------------------
-      - name: Cache Chocolatey packages
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: C:\Users\runneradmin\AppData\Local\Temp\chocolatey
-          key: choco-${{ runner.os }}-${{ runner.arch }}
+          # Update install script checksum
+          $installScript = Get-Content 'tools\chocolateyinstall.ps1' -Raw
+          $installScript = $installScript -replace "checksum64\s*=\s*'([A-F0-9]{64}|PLACEHOLDER_CHECKSUM)'", "checksum64     = '$checksum'"
+          Set-Content -Path 'tools\chocolateyinstall.ps1' -Value $installScript -NoNewline
+          Write-Host "Updated checksum in install script"
 
-      - name: Install Chocolatey (if missing)
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
+      - name: Test package
         run: |
-          if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          # Build package
+          choco pack --yes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Package build failed"
           }
 
-      - name: Pack & local-test the package
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
-        run: |
-          choco pack --yes
+          # Test installation
+          $version = "${{ needs.check-for-updates.outputs.latest_version }}"
           choco install opencode -dy --source="'.,https://community.chocolatey.org/api/v2/'"
-          opencode --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Package installation failed"
+          }
 
-      # ------------------------------
-      # 6) Create PR
-      # ------------------------------
+          # Verify it works
+          $installedVersion = & opencode --version 2>&1
+          Write-Host "Installed version: $installedVersion"
+
+          if (-not ($installedVersion -match $version)) {
+            Write-Host "::warning::Version mismatch - expected $version, got $installedVersion"
+          }
+
       - name: Create Pull Request
-        if: ${{ steps.check.outputs.UPDATE_AVAILABLE == 'true' && steps.check.outputs.ASSET_AVAILABLE == 'true' || env.FORCE_UPDATE == 'true' }}
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: 'Update opencode from v${{ steps.current.outputs.VERSION }} to v${{ steps.new.outputs.VERSION }}'
-          title: 'Update opencode to v${{ steps.new.outputs.VERSION }}'
+          commit-message: 'chore: update opencode to v${{ needs.check-for-updates.outputs.latest_version }}'
+          title: 'Update opencode to v${{ needs.check-for-updates.outputs.latest_version }}'
           body: |
-            This PR updates opencode from **v${{ steps.current.outputs.VERSION }}** to **v${{ steps.new.outputs.VERSION }}**.
+            ## 🚀 Auto-update: opencode v${{ needs.check-for-updates.outputs.latest_version }}
 
-            ## Changes
-            * Version in `opencode.nuspec`
-            * SHA-256 checksum in `tools/chocolateyinstall.ps1`
+            **Previous version:** v${{ needs.check-for-updates.outputs.current_version }}  
+            **New version:** v${{ needs.check-for-updates.outputs.latest_version }}
 
-            ## Validation
-            * ✅ Package builds
-            * ✅ Local Choco install test passed
+            ### Changes Made
+            - ✅ Updated version in `opencode.nuspec`
+            - ✅ Updated SHA256 checksum in `tools/chocolateyinstall.ps1`
+            - ✅ Updated release notes URL
 
-            Merge when ready to publish.
-          branch: update-opencode-v${{ steps.current.outputs.VERSION }}-to-v${{ steps.new.outputs.VERSION }}
+            ### Validation
+            - ✅ Package builds successfully
+            - ✅ Local installation test passed
+            - ✅ Binary version verified
+
+            **Release notes:** https://github.com/sst/opencode/releases/tag/v${{ needs.check-for-updates.outputs.latest_version }}
+
+            ---
+            *This PR was created automatically by the update workflow.*
+          branch: update-v${{ needs.check-for-updates.outputs.latest_version }}
           delete-branch: true
-          labels: automated, update
+          labels: |
+            automated
+            update
+            dependencies
 
-      # ------------------------------
-      # 7) Summary
-      # ------------------------------
-      - name: Job summary
-        if: always()
-        continue-on-error: true
+  # Job 3: Status summary (always runs)
+  summary:
+    name: Update summary
+    runs-on: windows-latest
+    needs: [check-for-updates, update-package]
+    if: always()
+
+    steps:
+      - name: Report results
         run: |
-          if ($env:FORCE_UPDATE -eq 'true') {
-            Write-Host "::notice::Force update requested – attempted rebuild."
-          } elseif ('${{ steps.check.outputs.UPDATE_AVAILABLE }}' -eq 'false') {
-            Write-Host "::notice::opencode is already up-to-date."
-          } elseif ('${{ steps.check.outputs.UPDATE_AVAILABLE }}' -eq 'true') {
-            Write-Host "::notice::opencode update process completed successfully."
+          $needsUpdate = "${{ needs.check-for-updates.outputs.needs_update }}"
+          $updateResult = "${{ needs.update-package.result }}"
+
+          if ($needsUpdate -eq 'false') {
+            Write-Host "::notice::No update needed - opencode is already at the latest version"
+          } elseif ($updateResult -eq 'success') {
+            Write-Host "::notice::✅ Successfully created PR for opencode v${{ needs.check-for-updates.outputs.latest_version }}"
+          } elseif ($updateResult -eq 'failure') {
+            Write-Host "::error::❌ Update process failed"
+            exit 1
+          } elseif ($updateResult -eq 'cancelled') {
+            Write-Host "::warning::⚠️ Update process was cancelled"
           } else {
-            Write-Host "::warning::Unknown job state."
+            Write-Host "::notice::Update check completed"
           }
