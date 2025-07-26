@@ -1,0 +1,135 @@
+name: Automated Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.3.78)'
+        required: true
+        type: string
+      release_notes:
+        description: 'Release notes (optional)'
+        required: false
+        type: string
+      skip_tests:
+        description: 'Skip local package tests'
+        required: false
+        type: boolean
+        default: true
+
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Setup Chocolatey
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: --version
+
+      - name: Determine version
+        id: version
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+          }
+
+          # Validate version format
+          if (-not ($version -match '^\d+\.\d+\.\d+$')) {
+            Write-Error "Invalid version format: $version. Expected format: x.y.z"
+            exit 1
+          }
+
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "tag_name=v$version" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Run release script
+        run: |
+          $params = @{
+            Version = "${{ steps.version.outputs.version }}"
+            Force = $true
+          }
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ github.event.inputs.skip_tests }}" -eq "true") {
+            $params.SkipTests = $true
+          }
+
+          if ("${{ github.event.inputs.release_notes }}") {
+            $params.ReleaseNotes = "${{ github.event.inputs.release_notes }}"
+          }
+
+          ./release.ps1 @params
+        shell: pwsh
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chocolatey-package
+          path: opencode.${{ steps.version.outputs.version }}.nupkg
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            ${{ github.event.inputs.release_notes || format('**Full Changelog**: https://github.com/{0}/compare/{1}...{2}', github.repository, github.event.repository.default_branch, steps.version.outputs.tag_name) }}
+          files: opencode.${{ steps.version.outputs.version }}.nupkg
+          draft: false
+          prerelease: false
+
+      - name: Check if version exists on Chocolatey
+        id: version_check
+        continue-on-error: true
+        run: |
+          $response = Invoke-WebRequest -Uri "https://community.chocolatey.org/packages/opencode/${{ steps.version.outputs.version }}" -Method HEAD
+          if ($response.StatusCode -eq 200) {
+            Write-Warning "Version ${{ steps.version.outputs.version }} already exists on Chocolatey"
+            echo "exists=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "exists=false" >> $env:GITHUB_OUTPUT
+          }
+        shell: pwsh
+
+      - name: Push to Chocolatey Community
+        if: success() && steps.version_check.outputs.exists != 'true'
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          if (-not $env:CHOCOLATEY_API_KEY) {
+            Write-Host "CHOCOLATEY_API_KEY not set. Skipping push to Chocolatey Community."
+            Write-Host "To enable automatic publishing, add CHOCOLATEY_API_KEY to your repository secrets."
+            exit 0
+          }
+
+          try {
+            Write-Host "Pushing package to Chocolatey Community..."
+            choco push opencode.${{ steps.version.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY --timeout 300
+            Write-Host "Package pushed successfully!"
+          } catch {
+            Write-Error "Failed to push package: $_"
+            exit 1
+          }
+        shell: pwsh
