@@ -1,0 +1,382 @@
+name: Auto Release opencode Package
+
+on:
+  schedule:
+    # Check every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force release even if version matches'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run mode - validate but do not publish'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: opencode-auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  auto-release:
+    name: Check, Build & Release
+    runs-on: windows-latest
+    timeout-minutes: 20 # Increased from 15 for potential slow operations
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for potential conflict resolution
+
+      - name: Cache Chocolatey
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/chocolatey
+            ~\AppData\Local\Temp\chocolatey
+          key: ${{ runner.os }}-chocolatey-${{ hashFiles('**/*.nuspec') }}
+          restore-keys: |
+            ${{ runner.os }}-chocolatey-
+
+      - name: Check for new release
+        id: check
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get current version
+          [xml]$nuspec = Get-Content 'opencode.nuspec'
+          $currentVersion = $nuspec.package.metadata.version
+
+          # Get latest release with authentication and retry logic
+          $headers = @{ 
+            'User-Agent' = 'Chocolatey-Updater'
+            'Accept' = 'application/vnd.github.v3+json'
+            'Authorization' = "Bearer $env:GITHUB_TOKEN"
+          }
+
+          $maxRetries = 3
+          $release = $null
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/sst/opencode/releases/latest' -Headers $headers -TimeoutSec 30
+              break
+            } catch {
+              # Check for rate limiting
+              if ($_.Exception.Response.StatusCode -eq 403) {
+                Write-Host "::warning::GitHub API rate limit hit, backing off..."
+                Start-Sleep -Seconds (30 * $i)
+              }
+              if ($i -eq $maxRetries) {
+                Write-Host "::error::Failed to fetch latest release after $maxRetries attempts: $_"
+                Write-Host "::error::Status Code: $($_.Exception.Response.StatusCode)"
+                exit 1
+              }
+              Write-Host "::warning::API call attempt $i failed, retrying in $((5 * $i)) seconds..."
+              Start-Sleep -Seconds (5 * $i)
+            }
+          }
+
+          $latestVersion = $release.tag_name.TrimStart('v')
+
+          # Check Windows x64 asset
+          $asset = $release.assets | Where-Object { $_.name -eq 'opencode-windows-x64.zip' }
+          if (-not $asset) {
+            Write-Host "::notice::No Windows x64 asset available for $latestVersion"
+            "needs_release=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          # Check if update needed
+          $forceRelease = '${{ inputs.force }}' -eq 'true'
+          $needsRelease = ($currentVersion -ne $latestVersion) -or $forceRelease
+
+          "needs_release=$($needsRelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "current_version=$currentVersion" >> $env:GITHUB_OUTPUT
+          "latest_version=$latestVersion" >> $env:GITHUB_OUTPUT
+          "download_url=$($asset.browser_download_url)" >> $env:GITHUB_OUTPUT
+          "dry_run=${{ inputs.dry_run }}" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Current: $currentVersion, Latest: $latestVersion, Needs Release: $needsRelease"
+          if ('${{ inputs.dry_run }}' -eq 'true') {
+            Write-Host "::notice::Running in DRY RUN mode"
+          }
+
+      - name: Download and update package
+        if: steps.check.outputs.needs_release == 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.check.outputs.latest_version }}"
+          $downloadUrl = "${{ steps.check.outputs.download_url }}"
+
+          # Function to download with retry
+          function Download-WithRetry {
+            param($Url, $OutFile, $MaxRetries = 3)
+            
+            for ($i = 1; $i -le $MaxRetries; $i++) {
+              try {
+                Write-Host "Download attempt $i of $MaxRetries..."
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300
+                return $true
+              } catch {
+                if ($i -eq $MaxRetries) {
+                  throw "Failed to download after $MaxRetries attempts: $_"
+                }
+                Write-Host "Download failed, retrying in 5 seconds..."
+                Start-Sleep -Seconds 5
+              }
+            }
+            return $false
+          }
+
+          # Download and get checksum
+          $tempFile = "$env:TEMP\opencode-$version.zip"
+          if (-not (Download-WithRetry -Url $downloadUrl -OutFile $tempFile)) {
+            exit 1
+          }
+
+          # Validate downloaded file
+          if (-not (Test-Path $tempFile) -or (Get-Item $tempFile).Length -eq 0) {
+            throw "Downloaded file is missing or empty"
+          }
+
+          # Test if it's a valid zip
+          try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($tempFile)
+            $zip.Dispose()
+            Write-Host "✓ Downloaded zip file is valid"
+          } catch {
+            throw "Downloaded file is not a valid zip: $_"
+          }
+
+          $checksum = Get-FileHash -Path $tempFile -Algorithm SHA256 | Select-Object -ExpandProperty Hash
+          Remove-Item $tempFile -Force
+
+          # Update nuspec
+          [xml]$nuspec = Get-Content 'opencode.nuspec'
+          $nuspec.package.metadata.version = $version
+          $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$version"
+          $nuspec.Save('opencode.nuspec')
+
+          # Update install script with more robust regex
+          $installScript = Get-Content 'tools\chocolateyinstall.ps1' -Raw
+          $installScript = $installScript -replace "checksum64\s*=\s*'([A-F0-9]{64}|PLACEHOLDER_CHECKSUM)'", "checksum64     = '$checksum'"
+          Set-Content -Path 'tools\chocolateyinstall.ps1' -Value $installScript -NoNewline
+
+          Write-Host "Updated package to version $version with checksum $checksum"
+
+      - name: Install Chocolatey and test package
+        if: steps.check.outputs.needs_release == 'true'
+        shell: pwsh
+        run: |
+          # Check if Chocolatey is already installed
+          if (Get-Command choco -ErrorAction SilentlyContinue) {
+            Write-Host "Chocolatey already installed"
+          } else {
+            # Install Chocolatey
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          }
+
+          # Build and test package
+          choco pack
+
+          # Store package name for cleanup
+          $packageFile = "opencode.${{ steps.check.outputs.latest_version }}.nupkg"
+          "package_file=$packageFile" >> $env:GITHUB_OUTPUT
+
+          choco install opencode -dvy -s . --force
+
+          # Verify installation with flexible version matching
+          $installedVersion = opencode --version
+          Write-Host "Installed version output: $installedVersion"
+
+          # Extract version number from various possible formats
+          $versionPattern = '(?:v|version\s*)?(\d+\.\d+\.\d+(?:\.\d+)?)'
+          if ($installedVersion -match $versionPattern) {
+            $extractedVersion = $matches[1]
+            Write-Host "Extracted version: $extractedVersion"
+            
+            if ($extractedVersion -ne '${{ steps.check.outputs.latest_version }}') {
+              throw "Version verification failed: expected ${{ steps.check.outputs.latest_version }}, got $extractedVersion"
+            }
+          } else {
+            throw "Could not extract version from output: $installedVersion"
+          }
+
+      - name: Check if version already published
+        if: steps.check.outputs.needs_release == 'true'
+        id: check_published
+        shell: pwsh
+        run: |
+          try {
+            $packageInfo = choco search opencode --exact --source=https://community.chocolatey.org/api/v2/ --limit-output
+            $publishedVersion = ($packageInfo -split '\|')[1]
+            
+            if ($publishedVersion -eq '${{ steps.check.outputs.latest_version }}') {
+              Write-Host "::notice::Version ${{ steps.check.outputs.latest_version }} already published to Chocolatey"
+              "already_published=true" >> $env:GITHUB_OUTPUT
+            } else {
+              "already_published=false" >> $env:GITHUB_OUTPUT
+            }
+          } catch {
+            Write-Host "Could not check published version, assuming not published"
+            "already_published=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Commit and tag
+        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.check.outputs.latest_version }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Check if files actually changed
+          if (-not (git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1)) {
+            git add opencode.nuspec tools/chocolateyinstall.ps1
+            git commit -m "chore: update opencode to v$version"
+            
+            # Check if tag already exists
+            if (git tag -l "v$version") {
+              Write-Host "::warning::Tag v$version already exists, deleting..."
+              git tag -d "v$version" 2>$null
+              git push origin :refs/tags/"v$version" 2>$null
+            }
+            git tag -a "v$version" -m "Release v$version"
+
+            # Push with retry and conflict handling
+            $maxRetries = 3
+            for ($i = 1; $i -le $maxRetries; $i++) {
+              try {
+                git push origin main
+                git push origin "v$version"
+                Write-Host "Successfully pushed changes"
+                break
+              } catch {
+                if ($i -eq $maxRetries) {
+                  Write-Host "::error::Failed to push after $maxRetries attempts"
+                  exit 1
+                }
+                Write-Host "Push failed, attempting to pull and retry..."
+                git pull --rebase origin main
+                Start-Sleep -Seconds 2
+              }
+            }
+          } else {
+            Write-Host "::notice::No changes detected in package files"
+          }
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.check.outputs.latest_version }}
+          name: opencode Chocolatey Package v${{ steps.check.outputs.latest_version }}
+          body: |
+            # opencode Chocolatey Package v${{ steps.check.outputs.latest_version }}
+
+            Auto-release of opencode v${{ steps.check.outputs.latest_version }} for Chocolatey.
+
+            ## Install
+            ```powershell
+            choco install opencode
+            ```
+
+            **Release Notes:** https://github.com/sst/opencode/releases/tag/v${{ steps.check.outputs.latest_version }}
+          files: opencode.${{ steps.check.outputs.latest_version }}.nupkg
+          draft: false
+          prerelease: false
+
+      - name: Publish to Chocolatey
+        if: steps.check.outputs.needs_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.check.outputs.dry_run != 'true'
+        shell: pwsh
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          if (-not $env:CHOCO_API_KEY) {
+            Write-Host "::error::CHOCO_API_KEY secret not configured"
+            exit 1
+          }
+
+          $version = "${{ steps.check.outputs.latest_version }}"
+
+          # Push with retry
+          $maxRetries = 3
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/
+              choco push "opencode.$version.nupkg" -s https://push.chocolatey.org/ --timeout=600
+              Write-Host "::notice::Successfully published opencode v$version to Chocolatey"
+              break
+            } catch {
+              if ($i -eq $maxRetries) {
+                throw "Failed to publish to Chocolatey after $maxRetries attempts: $_"
+              }
+              Write-Host "Publish attempt $i failed, retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+
+      - name: Cleanup on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          # Clean up any built packages
+          Get-ChildItem -Path . -Filter "*.nupkg" | Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host "Cleaned up build artifacts"
+
+      - name: Summary and Notifications
+        if: always()
+        shell: pwsh
+        run: |
+          $needsRelease = "${{ steps.check.outputs.needs_release }}"
+          $currentVersion = "${{ steps.check.outputs.current_version }}"
+          $latestVersion = "${{ steps.check.outputs.latest_version }}"
+          $dryRun = "${{ steps.check.outputs.dry_run }}"
+
+          $summary = @"
+          ## Auto-Release Summary
+
+          - **Current Version:** $currentVersion
+          - **Latest Version:** $latestVersion
+          - **Needs Release:** $needsRelease
+          - **Dry Run:** $dryRun
+          - **Status:** ${{ job.status }}
+          "@
+
+          if ($needsRelease -eq 'true') {
+            if ($dryRun -eq 'true') {
+              $summary += "`n`n✅ DRY RUN: Would have released opencode v$latestVersion"
+            } elseif ('${{ job.status }}' -eq 'success') {
+              $summary += "`n`n✅ Successfully auto-released opencode v$latestVersion"
+            } else {
+              $summary += "`n`n❌ Failed to auto-release opencode v$latestVersion"
+            }
+          } else {
+            $summary += "`n`nℹ️ No release needed - already at latest version"
+          }
+
+          # Write to job summary
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+          # Also output as notice
+          if ($needsRelease -eq 'true' -and '${{ job.status }}' -eq 'success' -and $dryRun -ne 'true') {
+            Write-Host "::notice::✅ Auto-released opencode v$latestVersion (was v$currentVersion)"
+          } elseif ($needsRelease -eq 'true' -and '${{ job.status }}' -ne 'success') {
+            Write-Host "::error::❌ Failed to auto-release opencode v$latestVersion"
+          } else {
+            Write-Host "::notice::ℹ️ No release needed - already at latest version v$currentVersion"
+          }
