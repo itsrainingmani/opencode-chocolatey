@@ -375,6 +375,50 @@ jobs:
           Get-ChildItem -Path . -Filter "*.nupkg" | Remove-Item -Force -ErrorAction SilentlyContinue
           Write-Host "Cleaned up build artifacts"
 
+      - name: Discord Notification
+        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true' && success()
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          $version = "${{ steps.check.outputs.latest_version }}"
+
+          $payload = @{
+            content = "🎉 **OpenCode Chocolatey Package Released!**"
+            embeds = @(
+              @{
+                title = "New Release: v$version"
+                description = "Successfully published OpenCode v$version to Chocolatey"
+                color = 65280
+                fields = @(
+                  @{
+                    name = "Version"
+                    value = "v$version"
+                    inline = $true
+                  }
+                  @{
+                    name = "Package"
+                    value = "[View on Chocolatey](https://community.chocolatey.org/packages/opencode/$version)"
+                    inline = $true
+                  }
+                  @{
+                    name = "Changelog"
+                    value = "[View Release](https://github.com/sst/opencode/releases/tag/v$version)"
+                    inline = $true
+                  }
+                )
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+              }
+            )
+          } | ConvertTo-Json -Depth 10
+
+          try {
+            Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK_URL -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 30 | Out-Null
+            Write-Host "✓ Discord notification sent"
+          } catch {
+            Write-Host "::warning::Failed to send Discord notification: $_"
+          }
+
       - name: Summary and Notifications
         if: always()
         shell: pwsh
