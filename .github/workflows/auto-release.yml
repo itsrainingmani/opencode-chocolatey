@@ -196,7 +196,7 @@ jobs:
           $packageFile = "opencode.${{ steps.check.outputs.latest_version }}.nupkg"
           "package_file=$packageFile" >> $env:GITHUB_OUTPUT
 
-          choco install opencode -dvy -s . --force
+          choco install opencode -dvy -s . --force --source="'.,https://community.chocolatey.org/api/v2/'"
 
           # Verify installation with flexible version matching
           $installedVersion = opencode --version
