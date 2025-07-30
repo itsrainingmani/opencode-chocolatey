@@ -1,6 +1,6 @@
 # Chocolatey opencode
 
-![Chocolatey Version](https://img.shields.io/chocolatey/v/opencode) ![Chocolatey Downloads](https://img.shields.io/chocolatey/dt/opencode?style=plastic) ![Vibe Coded](https://img.shields.io/badge/vibe_coded-100%25-green?logo=claude)
+![Chocolatey Version](https://img.shields.io/chocolatey/v/opencode) ![Chocolatey Downloads](https://img.shields.io/chocolatey/dt/opencode?style=plastic) ![Vibe Coded](https://img.shields.io/badge/vibe_coded-100%25-green?logo=claude) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/itsrainingmani/opencode-chocolatey/auto-release.yml)
 
 This is a [**Chocolatey Community Package**](https://community.chocolatey.org/) repository for packaging & distributing [sst/opencode](https://github.com/sst/opencode) on Windows
 
