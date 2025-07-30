@@ -37,15 +37,18 @@ jobs:
         with:
           fetch-depth: 0 # Full history for potential conflict resolution
 
-      - name: Cache Chocolatey
+      - name: Cache Chocolatey and Dependencies
         uses: actions/cache@v4
         with:
           path: |
+            C:\ProgramData\chocolatey
+            C:\Users\runneradmin\AppData\Local\Temp\chocolatey
             ${{ runner.temp }}/chocolatey
-            ~\AppData\Local\Temp\chocolatey
-          key: ${{ runner.os }}-chocolatey-${{ hashFiles('**/*.nuspec') }}
+            ${{ runner.temp }}/opencode-cache
+          key: ${{ runner.os }}-choco-deps-${{ hashFiles('**/*.nuspec') }}-${{ github.run_number }}
           restore-keys: |
-            ${{ runner.os }}-chocolatey-
+            ${{ runner.os }}-choco-deps-${{ hashFiles('**/*.nuspec') }}-
+            ${{ runner.os }}-choco-deps-
 
       - name: Check for new release
         id: check
@@ -111,37 +114,61 @@ jobs:
             Write-Host "::notice::Running in DRY RUN mode"
           }
 
+      - name: Cache opencode download
+        if: steps.check.outputs.needs_release == 'true'
+        uses: actions/cache@v4
+        id: cache-opencode
+        with:
+          path: ${{ runner.temp }}/opencode-cache/opencode-${{ steps.check.outputs.latest_version }}.zip
+          key: opencode-download-${{ steps.check.outputs.latest_version }}
+
       - name: Download and update package
         if: steps.check.outputs.needs_release == 'true'
         shell: pwsh
         run: |
           $version = "${{ steps.check.outputs.latest_version }}"
           $downloadUrl = "${{ steps.check.outputs.download_url }}"
+          $cacheDir = "${{ runner.temp }}/opencode-cache"
+          $cachedFile = "$cacheDir/opencode-$version.zip"
+          $tempFile = "$env:TEMP\opencode-$version.zip"
 
-          # Function to download with retry
-          function Download-WithRetry {
-            param($Url, $OutFile, $MaxRetries = 3)
-            
-            for ($i = 1; $i -le $MaxRetries; $i++) {
-              try {
-                if ($i -eq 1) { Write-Host "Downloading opencode v$version..." }
-                Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300 2>&1 | Out-Null
-                return $true
-              } catch {
-                if ($i -eq $MaxRetries) {
-                  throw "Failed to download after $MaxRetries attempts: $_"
-                }
-                Write-Host "::warning::Download attempt $i failed, retrying..."
-                Start-Sleep -Seconds 5
-              }
-            }
-            return $false
+          # Create cache directory if it doesn't exist
+          if (-not (Test-Path $cacheDir)) {
+            New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
           }
 
-          # Download and get checksum
-          $tempFile = "$env:TEMP\opencode-$version.zip"
-          if (-not (Download-WithRetry -Url $downloadUrl -OutFile $tempFile)) {
-            exit 1
+          # Check if we have a cached version
+          if ('${{ steps.cache-opencode.outputs.cache-hit }}' -eq 'true' -and (Test-Path $cachedFile)) {
+            Write-Host "✓ Using cached opencode v$version"
+            Copy-Item $cachedFile $tempFile
+          } else {
+            # Function to download with retry
+            function Download-WithRetry {
+              param($Url, $OutFile, $MaxRetries = 3)
+              
+              for ($i = 1; $i -le $MaxRetries; $i++) {
+                try {
+                  if ($i -eq 1) { Write-Host "Downloading opencode v$version..." }
+                  Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300 2>&1 | Out-Null
+                  return $true
+                } catch {
+                  if ($i -eq $MaxRetries) {
+                    throw "Failed to download after $MaxRetries attempts: $_"
+                  }
+                  Write-Host "::warning::Download attempt $i failed, retrying..."
+                  Start-Sleep -Seconds 5
+                }
+              }
+              return $false
+            }
+
+            # Download fresh copy
+            if (-not (Download-WithRetry -Url $downloadUrl -OutFile $tempFile)) {
+              exit 1
+            }
+
+            # Cache the downloaded file
+            Copy-Item $tempFile $cachedFile
           }
 
           # Validate downloaded file
@@ -182,12 +209,29 @@ jobs:
           # Check if Chocolatey is already installed
           if (Get-Command choco -ErrorAction SilentlyContinue) {
             Write-Host "✓ Chocolatey already installed"
+            # Ensure dependencies are cached
+            Write-Host "Ensuring opencode dependencies are cached..."
+            @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
+              if (-not (choco list --local-only $_ --exact --limit-output)) {
+                Write-Host "Installing dependency: $_"
+                choco install $_ -y --limit-output 2>&1 | Out-Null
+              } else {
+                Write-Host "✓ $_ already installed"
+              }
+            }
           } else {
             Write-Host "Installing Chocolatey..."
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Null
             Write-Host "✓ Chocolatey installed"
+            
+            # Pre-install dependencies to cache them
+            Write-Host "Pre-installing opencode dependencies..."
+            @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
+              Write-Host "Installing dependency: $_"
+              choco install $_ -y --limit-output 2>&1 | Out-Null
+            }
           }
 
           # Build package quietly
@@ -202,7 +246,7 @@ jobs:
 
           # Install package quietly
           Write-Host "Testing package installation..."
-          choco install opencode -y --source="'.,https://community.chocolatey.org/api/v2/'" --force --limit-output 2>&1 | Out-Null
+          choco install opencode -y -s . --force --limit-output 2>&1 | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Package installation failed" }
 
           # Verify installation
@@ -289,18 +333,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.check.outputs.latest_version }}
-          name: opencode Chocolatey Package v${{ steps.check.outputs.latest_version }}
+          name: v${{ steps.check.outputs.latest_version }}
           body: |
-            # opencode Chocolatey Package v${{ steps.check.outputs.latest_version }}
-
-            Auto-release of opencode v${{ steps.check.outputs.latest_version }} for Chocolatey.
-
-            ## Install
-            ```powershell
-            choco install opencode
-            ```
-
-            **Release Notes:** https://github.com/sst/opencode/releases/tag/v${{ steps.check.outputs.latest_version }}
+            **Full Changelog**: https://github.com/itsrainingmani/opencode-chocolatey/compare/v${{ steps.check.outputs.current_version }}...v${{ steps.check.outputs.latest_version }}
           files: opencode.${{ steps.check.outputs.latest_version }}.nupkg
           draft: false
           prerelease: false
