@@ -202,7 +202,7 @@ jobs:
 
           # Install package quietly
           Write-Host "Testing package installation..."
-          choco install opencode -y -s . --force --limit-output 2>&1 | Out-Null
+          choco install opencode -y --source="'.,https://community.chocolatey.org/api/v2/'" --force --limit-output 2>&1 | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Package installation failed" }
 
           # Verify installation
