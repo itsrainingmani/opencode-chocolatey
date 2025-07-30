@@ -37,17 +37,17 @@ jobs:
         with:
           fetch-depth: 0 # Full history for potential conflict resolution
 
-      - name: Cache Chocolatey and Dependencies
+      - name: Cache Chocolatey Dependencies
         uses: actions/cache@v4
         with:
           path: |
-            C:\ProgramData\chocolatey
-            C:\Users\runneradmin\AppData\Local\Temp\chocolatey
-            ${{ runner.temp }}/chocolatey
+            C:\ProgramData\chocolatey\bin
+            C:\ProgramData\chocolatey\lib\ripgrep
+            C:\ProgramData\chocolatey\lib\fzf  
+            C:\ProgramData\chocolatey\lib\unzip
             ${{ runner.temp }}/opencode-cache
-          key: ${{ runner.os }}-choco-deps-${{ hashFiles('**/*.nuspec') }}-${{ github.run_number }}
+          key: ${{ runner.os }}-choco-deps-v3
           restore-keys: |
-            ${{ runner.os }}-choco-deps-${{ hashFiles('**/*.nuspec') }}-
             ${{ runner.os }}-choco-deps-
 
       - name: Check for new release
@@ -206,29 +206,25 @@ jobs:
         if: steps.check.outputs.needs_release == 'true'
         shell: pwsh
         run: |
-          # Check if Chocolatey is already installed
+          # Check if Chocolatey is already installed (GitHub runners usually have it)
           if (Get-Command choco -ErrorAction SilentlyContinue) {
-            Write-Host "✓ Chocolatey already installed"
-            # Ensure dependencies are cached
-            Write-Host "Ensuring opencode dependencies are cached..."
-            @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
-              if (-not (choco list --local-only $_ --exact --limit-output)) {
-                Write-Host "Installing dependency: $_"
-                choco install $_ -y --limit-output 2>&1 | Out-Null
-              } else {
-                Write-Host "✓ $_ already installed"
-              }
-            }
+            Write-Host "✓ Chocolatey already available"
+            choco feature enable -n allowGlobalConfirmation 2>&1 | Out-Null
           } else {
             Write-Host "Installing Chocolatey..."
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Null
+            choco feature enable -n allowGlobalConfirmation 2>&1 | Out-Null
             Write-Host "✓ Chocolatey installed"
-            
-            # Pre-install dependencies to cache them
-            Write-Host "Pre-installing opencode dependencies..."
-            @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
+          }
+
+          # Ensure dependencies are available (check cache first)
+          @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
+            $libPath = "C:\ProgramData\chocolatey\lib\$_"
+            if (Test-Path $libPath) {
+              Write-Host "✓ $_ available (cached)"
+            } else {
               Write-Host "Installing dependency: $_"
               choco install $_ -y --limit-output 2>&1 | Out-Null
             }
