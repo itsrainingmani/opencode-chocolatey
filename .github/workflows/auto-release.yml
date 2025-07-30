@@ -124,14 +124,14 @@ jobs:
             
             for ($i = 1; $i -le $MaxRetries; $i++) {
               try {
-                Write-Host "Download attempt $i of $MaxRetries..."
-                Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300
+                if ($i -eq 1) { Write-Host "Downloading opencode v$version..." }
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300 2>&1 | Out-Null
                 return $true
               } catch {
                 if ($i -eq $MaxRetries) {
                   throw "Failed to download after $MaxRetries attempts: $_"
                 }
-                Write-Host "Download failed, retrying in 5 seconds..."
+                Write-Host "::warning::Download attempt $i failed, retrying..."
                 Start-Sleep -Seconds 5
               }
             }
@@ -154,11 +154,11 @@ jobs:
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $zip = [System.IO.Compression.ZipFile]::OpenRead($tempFile)
             $zip.Dispose()
-            Write-Host "✓ Downloaded zip file is valid"
           } catch {
             throw "Downloaded file is not a valid zip: $_"
           }
 
+          Write-Host "Calculating checksum..."
           $checksum = Get-FileHash -Path $tempFile -Algorithm SHA256 | Select-Object -ExpandProperty Hash
           Remove-Item $tempFile -Force
 
@@ -173,7 +173,7 @@ jobs:
           $installScript = $installScript -replace "checksum64\s*=\s*'([A-F0-9]{64}|PLACEHOLDER_CHECKSUM)'", "checksum64     = '$checksum'"
           Set-Content -Path 'tools\chocolateyinstall.ps1' -Value $installScript -NoNewline
 
-          Write-Host "Updated package to version $version with checksum $checksum"
+          Write-Host "✓ Package updated to v$version"
 
       - name: Install Chocolatey and test package
         if: steps.check.outputs.needs_release == 'true'
@@ -181,36 +181,39 @@ jobs:
         run: |
           # Check if Chocolatey is already installed
           if (Get-Command choco -ErrorAction SilentlyContinue) {
-            Write-Host "Chocolatey already installed"
+            Write-Host "✓ Chocolatey already installed"
           } else {
-            # Install Chocolatey
+            Write-Host "Installing Chocolatey..."
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Null
+            Write-Host "✓ Chocolatey installed"
           }
 
-          # Build and test package
-          choco pack
+          # Build package quietly
+          Write-Host "Building package..."
+          choco pack --yes 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Package build failed" }
 
           # Store package name for cleanup
           $packageFile = "opencode.${{ steps.check.outputs.latest_version }}.nupkg"
           "package_file=$packageFile" >> $env:GITHUB_OUTPUT
+          Write-Host "✓ Package built: $packageFile"
 
-          choco install opencode -dvy -s . --force --source="'.,https://community.chocolatey.org/api/v2/'"
+          # Install package quietly
+          Write-Host "Testing package installation..."
+          choco install opencode -y -s . --force --limit-output 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Package installation failed" }
 
-          # Verify installation with flexible version matching
-          $installedVersion = opencode --version
-          Write-Host "Installed version output: $installedVersion"
-
-          # Extract version number from various possible formats
+          # Verify installation
+          $installedVersion = opencode --version 2>&1
           $versionPattern = '(?:v|version\s*)?(\d+\.\d+\.\d+(?:\.\d+)?)'
           if ($installedVersion -match $versionPattern) {
             $extractedVersion = $matches[1]
-            Write-Host "Extracted version: $extractedVersion"
-            
             if ($extractedVersion -ne '${{ steps.check.outputs.latest_version }}') {
               throw "Version verification failed: expected ${{ steps.check.outputs.latest_version }}, got $extractedVersion"
             }
+            Write-Host "✓ Package test passed (v$extractedVersion)"
           } else {
             throw "Could not extract version from output: $installedVersion"
           }
@@ -221,17 +224,18 @@ jobs:
         shell: pwsh
         run: |
           try {
-            $packageInfo = choco search opencode --exact --source=https://community.chocolatey.org/api/v2/ --limit-output
+            $packageInfo = choco search opencode --exact --source=https://community.chocolatey.org/api/v2/ --limit-output 2>&1 | Out-String
             $publishedVersion = ($packageInfo -split '\|')[1]
             
             if ($publishedVersion -eq '${{ steps.check.outputs.latest_version }}') {
-              Write-Host "::notice::Version ${{ steps.check.outputs.latest_version }} already published to Chocolatey"
+              Write-Host "::notice::Version ${{ steps.check.outputs.latest_version }} already published"
               "already_published=true" >> $env:GITHUB_OUTPUT
             } else {
+              Write-Host "Version ${{ steps.check.outputs.latest_version }} not yet published"
               "already_published=false" >> $env:GITHUB_OUTPUT
             }
           } catch {
-            Write-Host "Could not check published version, assuming not published"
+            Write-Host "::warning::Could not check published version, assuming not published"
             "already_published=false" >> $env:GITHUB_OUTPUT
           }
 
@@ -246,32 +250,33 @@ jobs:
 
           # Check if files actually changed
           if (-not (git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1)) {
-            git add opencode.nuspec tools/chocolateyinstall.ps1
-            git commit -m "chore: update opencode to v$version"
+            Write-Host "Committing changes..."
+            git add opencode.nuspec tools/chocolateyinstall.ps1 2>&1 | Out-Null
+            git commit -m "chore: update opencode to v$version" 2>&1 | Out-Null
             
             # Check if tag already exists
             if (git tag -l "v$version") {
               Write-Host "::warning::Tag v$version already exists, deleting..."
-              git tag -d "v$version" 2>$null
-              git push origin :refs/tags/"v$version" 2>$null
+              git tag -d "v$version" 2>&1 | Out-Null
+              git push origin :refs/tags/"v$version" 2>&1 | Out-Null
             }
-            git tag -a "v$version" -m "Release v$version"
+            git tag -a "v$version" -m "Release v$version" 2>&1 | Out-Null
 
             # Push with retry and conflict handling
             $maxRetries = 3
             for ($i = 1; $i -le $maxRetries; $i++) {
               try {
-                git push origin main
-                git push origin "v$version"
-                Write-Host "Successfully pushed changes"
+                git push origin main 2>&1 | Out-Null
+                git push origin "v$version" 2>&1 | Out-Null
+                Write-Host "✓ Changes pushed to repository"
                 break
               } catch {
                 if ($i -eq $maxRetries) {
                   Write-Host "::error::Failed to push after $maxRetries attempts"
                   exit 1
                 }
-                Write-Host "Push failed, attempting to pull and retry..."
-                git pull --rebase origin main
+                Write-Host "::warning::Push failed, retrying..."
+                git pull --rebase origin main 2>&1 | Out-Null
                 Start-Sleep -Seconds 2
               }
             }
@@ -314,18 +319,19 @@ jobs:
           $version = "${{ steps.check.outputs.latest_version }}"
 
           # Push with retry
+          Write-Host "Publishing to Chocolatey..."
           $maxRetries = 3
           for ($i = 1; $i -le $maxRetries; $i++) {
             try {
-              choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/
-              choco push "opencode.$version.nupkg" -s https://push.chocolatey.org/ --timeout=600
-              Write-Host "::notice::Successfully published opencode v$version to Chocolatey"
+              choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/ 2>&1 | Out-Null
+              choco push "opencode.$version.nupkg" -s https://push.chocolatey.org/ --timeout=600 2>&1 | Out-Null
+              Write-Host "✓ Successfully published opencode v$version to Chocolatey"
               break
             } catch {
               if ($i -eq $maxRetries) {
                 throw "Failed to publish to Chocolatey after $maxRetries attempts: $_"
               }
-              Write-Host "Publish attempt $i failed, retrying in 10 seconds..."
+              Write-Host "::warning::Publish attempt $i failed, retrying in 10 seconds..."
               Start-Sleep -Seconds 10
             }
           }
