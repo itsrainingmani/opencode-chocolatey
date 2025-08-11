@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>opencode</id>
-    <version>0.4.6</version>
+    <version>0.4.11</version>
     <packageSourceUrl>https://github.com/itsrainingmani/opencode-chocolatey</packageSourceUrl>
     <owners>itsrainingmani</owners>
     <title>opencode</title>
@@ -47,7 +47,7 @@ opencode auth login
 
 For more information, visit the [official documentation](https://opencode.ai/docs/).
 ]]></description>
-    <releaseNotes>https://github.com/sst/opencode/releases/tag/v0.4.6</releaseNotes>
+    <releaseNotes>https://github.com/sst/opencode/releases/tag/v0.4.11</releaseNotes>
     <dependencies>
       <dependency id="unzip" />
       <dependency id="ripgrep" />
