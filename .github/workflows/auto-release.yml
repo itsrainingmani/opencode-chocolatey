@@ -2,8 +2,8 @@ name: Auto Release opencode Package
 
 on:
   schedule:
-    # Check every 30 minutes
-    - cron: '*/30 * * * *'
+    # Check every 10 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       force:
