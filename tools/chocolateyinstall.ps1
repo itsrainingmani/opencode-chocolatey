@@ -12,7 +12,7 @@ $packageArgs = @{
   packageName    = $packageName
   unzipLocation  = $toolsDir
   url64bit       = $url64
-  checksum64     = '4716EF71C32BD93AFD46B2CB5E46B57B07411606596A4D28D924D4EED253D8ED'  # This should be updated by the update script
+  checksum64     = 'A1B4E5406A82BF476293E5F1B6BFF451089296F90F3B51D96077F14986A29383'  # This should be updated by the update script
   checksumType64 = 'sha256'
 }
 
