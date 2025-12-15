@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>opencode</id>
-    <version>1.0.157</version>
+    <version>1.0.158</version>
     <packageSourceUrl>https://github.com/itsrainingmani/opencode-chocolatey</packageSourceUrl>
     <owners>itsrainingmani</owners>
     <title>opencode</title>
@@ -79,7 +79,7 @@ Alternatively, you can select one of the other providers. [Learn more](https://o
 
 For more information, visit the [official documentation](https://opencode.ai/docs/).
 ]]></description>
-    <releaseNotes>https://github.com/sst/opencode/releases/tag/v1.0.157</releaseNotes>
+    <releaseNotes>https://github.com/sst/opencode/releases/tag/v1.0.158</releaseNotes>
     <dependencies>
       <dependency id="unzip" />
       <dependency id="ripgrep" />
