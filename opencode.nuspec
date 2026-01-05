@@ -6,15 +6,15 @@
     <packageSourceUrl>https://github.com/itsrainingmani/opencode-chocolatey</packageSourceUrl>
     <owners>itsrainingmani</owners>
     <title>opencode</title>
-    <authors>SST</authors>
+    <authors>anomaly</authors>
     <projectUrl>https://opencode.ai/</projectUrl>
     <iconUrl>https://opencode.ai/favicon.svg</iconUrl>
     <copyright>2025 opencode</copyright>
-    <licenseUrl>https://github.com/sst/opencode/blob/dev/LICENSE</licenseUrl>
+    <licenseUrl>https://github.com/anomalyco/opencode/blob/dev/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/sst/opencode</projectSourceUrl>
+    <projectSourceUrl>https://github.com/anomalyco/opencode</projectSourceUrl>
     <docsUrl>https://opencode.ai/docs/</docsUrl>
-    <bugTrackerUrl>https://github.com/sst/opencode/issues</bugTrackerUrl>
+    <bugTrackerUrl>https://github.com/anomalyco/opencode/issues</bugTrackerUrl>
     <tags>opencode ai coding terminal tui assistant development productivity</tags>
     <summary>AI coding agent, built for the terminal</summary>
     <description><![CDATA[
@@ -79,7 +79,7 @@ Alternatively, you can select one of the other providers. [Learn more](https://o
 
 For more information, visit the [official documentation](https://opencode.ai/docs/).
 ]]></description>
-    <releaseNotes>https://github.com/sst/opencode/releases/tag/v1.1.2</releaseNotes>
+    <releaseNotes>https://github.com/anomalyco/opencode/releases/tag/v1.1.2</releaseNotes>
     <dependencies>
       <dependency id="unzip" />
       <dependency id="ripgrep" />

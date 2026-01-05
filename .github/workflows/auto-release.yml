@@ -71,7 +71,7 @@ jobs:
           $release = $null
           for ($i = 1; $i -le $maxRetries; $i++) {
             try {
-              $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/sst/opencode/releases/latest' -Headers $headers -TimeoutSec 30
+              $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/anomalyco/opencode/releases/latest' -Headers $headers -TimeoutSec 30
               break
             } catch {
               # Check for rate limiting
@@ -192,7 +192,7 @@ jobs:
           # Update nuspec
           [xml]$nuspec = Get-Content 'opencode.nuspec'
           $nuspec.package.metadata.version = $version
-          $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$version"
+          $nuspec.package.metadata.releaseNotes = "https://github.com/anomalyco/opencode/releases/tag/v$version"
           $nuspec.Save('opencode.nuspec')
 
           # Update install script with more robust regex
@@ -403,7 +403,7 @@ jobs:
                   }
                   @{
                     name = "Changelog"
-                    value = "[View Release](https://github.com/sst/opencode/releases/tag/v$version)"
+                    value = "[View Release](https://github.com/anomalyco/opencode/releases/tag/v$version)"
                     inline = $true
                   }
                 )

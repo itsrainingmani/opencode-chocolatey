@@ -11,7 +11,7 @@
 
 ## Architecture
 
-This is a Windows Chocolatey package for distributing [sst/opencode](https://github.com/sst/opencode), an AI coding terminal agent. The package automatically downloads the Windows x64 binary from GitHub releases and installs it to the Chocolatey tools directory.
+This is a Windows Chocolatey package for distributing [anomalyco/opencode](https://github.com/anomalyco/opencode), an AI coding terminal agent. The package automatically downloads the Windows x64 binary from GitHub releases and installs it to the Chocolatey tools directory.
 
 **Key files:**
 
