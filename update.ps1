@@ -42,13 +42,13 @@ try {
   $currentVersion = $nuspec.package.metadata.version
   
   if ($SpecificVersion) {
-    $apiUrl = "https://api.github.com/repos/sst/opencode/releases/tags/v$SpecificVersion"
+    $apiUrl = "https://api.github.com/repos/anomalyco/opencode/releases/tags/v$SpecificVersion"
   }
   elseif ($PreRelease) {
-    $apiUrl = 'https://api.github.com/repos/sst/opencode/releases'
+    $apiUrl = 'https://api.github.com/repos/anomalyco/opencode/releases'
   }
   else {
-    $apiUrl = 'https://api.github.com/repos/sst/opencode/releases/latest'
+    $apiUrl = 'https://api.github.com/repos/anomalyco/opencode/releases/latest'
   }
   
   # Add retry logic for API calls
@@ -159,7 +159,7 @@ try {
     $nuspec.package.metadata.version = $latestVersion
     
     # Update releaseNotes URL
-    $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$latestVersion"
+    $nuspec.package.metadata.releaseNotes = "https://github.com/anomalyco/opencode/releases/tag/v$latestVersion"
     
     $nuspec.Save($nuspecPath)
     Write-Log "Updated nuspec to version $latestVersion" "Success"

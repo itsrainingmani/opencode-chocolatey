@@ -4,7 +4,7 @@ $toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 $packageName = 'opencode'
 $version = $env:chocolateyPackageVersion
 
-$url64 = "https://github.com/sst/opencode/releases/download/v$version/opencode-windows-x64.zip"
+$url64 = "https://github.com/anomalyco/opencode/releases/download/v$version/opencode-windows-x64.zip"
 
 Write-Host "opencode $version"
 

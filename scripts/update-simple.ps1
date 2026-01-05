@@ -27,9 +27,9 @@ try {
     # Get target version
     if ($Version) {
         $targetVersion = $Version
-        $apiUrl = "https://api.github.com/repos/sst/opencode/releases/tags/v$Version"
+        $apiUrl = "https://api.github.com/repos/anomalyco/opencode/releases/tags/v$Version"
     } else {
-        $apiUrl = 'https://api.github.com/repos/sst/opencode/releases/latest'
+        $apiUrl = 'https://api.github.com/repos/anomalyco/opencode/releases/latest'
     }
 
     $headers = @{ 
@@ -74,7 +74,7 @@ try {
     
     # Update nuspec
     $nuspec.package.metadata.version = $targetVersion
-    $nuspec.package.metadata.releaseNotes = "https://github.com/sst/opencode/releases/tag/v$targetVersion"
+    $nuspec.package.metadata.releaseNotes = "https://github.com/anomalyco/opencode/releases/tag/v$targetVersion"
     $nuspec.Save('opencode.nuspec')
 
     # Update install script

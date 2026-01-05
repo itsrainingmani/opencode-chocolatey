@@ -2,11 +2,11 @@
 
 ![Chocolatey Version](https://img.shields.io/chocolatey/v/opencode) ![Chocolatey Downloads](https://img.shields.io/chocolatey/dt/opencode?style=plastic) ![Vibe Coded](https://img.shields.io/badge/vibe_coded-100%25-green?logo=claude) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/itsrainingmani/opencode-chocolatey/auto-release.yml)
 
-This is a [**Chocolatey Community Package**](https://community.chocolatey.org/) repository for packaging & distributing [sst/opencode](https://github.com/sst/opencode) on Windows
+This is a [**Chocolatey Community Package**](https://community.chocolatey.org/) repository for packaging & distributing [anomalyco/opencode](https://github.com/anomalyco/opencode) on Windows
 
 ## Automatic Package Release
 
-This package runs a github action every [30 minutes](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule) to check if [sst/opencode](https://github.com/sst/opencode) has a new release. If so, the release is downloaded, packaged, tested & published to Chocolatey.
+This package runs a github action every [30 minutes](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule) to check if [anomalyco/opencode](https://github.com/anomalyco/opencode) has a new release. If so, the release is downloaded, packaged, tested & published to Chocolatey.
 
 ## Commands
 
@@ -57,5 +57,5 @@ You can also leave feedback for this package in the comments section of the [pac
 
 - [opencode on chocolatey](https://community.chocolatey.org/packages/opencode)
 - [opencode.ai](https://opencode.ai)
-- [github/sst/opencode](https://github.com/sst/opencode)
-- [opencode releases](https://github.com/sst/opencode/releases)
+- [github/anomalyco/opencode](https://github.com/anomalyco/opencode)
+- [opencode releases](https://github.com/anomalyco/opencode/releases)
