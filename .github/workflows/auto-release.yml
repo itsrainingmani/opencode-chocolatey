@@ -2,7 +2,6 @@ name: Auto Release opencode Package
 
 on:
   schedule:
-    # Check every 10 minutes
     - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
@@ -13,6 +12,11 @@ on:
         default: false
       dry_run:
         description: 'Dry run mode - validate but do not publish'
+        required: false
+        type: boolean
+        default: false
+      skip_published_check:
+        description: 'Skip the "already published" check (use if CDN is desynced)'
         required: false
         type: boolean
         default: false
@@ -29,13 +33,13 @@ jobs:
   auto-release:
     name: Check, Build & Release
     runs-on: windows-latest
-    timeout-minutes: 20 # Increased from 15 for potential slow operations
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for potential conflict resolution
+          fetch-depth: 0
 
       - name: Cache Chocolatey Dependencies
         uses: actions/cache@v4
@@ -56,11 +60,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get current version
+          # Get current version from nuspec
           [xml]$nuspec = Get-Content 'opencode.nuspec'
           $currentVersion = $nuspec.package.metadata.version
 
-          # Get latest release with authentication and retry logic
+          # Get latest release from GitHub
           $headers = @{ 
             'User-Agent' = 'Chocolatey-Updater'
             'Accept' = 'application/vnd.github.v3+json'
@@ -74,24 +78,22 @@ jobs:
               $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/anomalyco/opencode/releases/latest' -Headers $headers -TimeoutSec 30
               break
             } catch {
-              # Check for rate limiting
               if ($_.Exception.Response.StatusCode -eq 403) {
                 Write-Host "::warning::GitHub API rate limit hit, backing off..."
                 Start-Sleep -Seconds (30 * $i)
               }
               if ($i -eq $maxRetries) {
                 Write-Host "::error::Failed to fetch latest release after $maxRetries attempts: $_"
-                Write-Host "::error::Status Code: $($_.Exception.Response.StatusCode)"
                 exit 1
               }
-              Write-Host "::warning::API call attempt $i failed, retrying in $((5 * $i)) seconds..."
+              Write-Host "::warning::API call attempt $i failed, retrying..."
               Start-Sleep -Seconds (5 * $i)
             }
           }
 
           $latestVersion = $release.tag_name.TrimStart('v')
 
-          # Check Windows x64 asset
+          # Check for Windows x64 asset
           $asset = $release.assets | Where-Object { $_.name -eq 'opencode-windows-x64.zip' }
           if (-not $asset) {
             Write-Host "::notice::No Windows x64 asset available for $latestVersion"
@@ -99,7 +101,7 @@ jobs:
             exit 0
           }
 
-          # Check if update needed
+          # Determine if release is needed
           $forceRelease = '${{ inputs.force }}' -eq 'true'
           $needsRelease = ($currentVersion -ne $latestVersion) -or $forceRelease
 
@@ -132,42 +134,30 @@ jobs:
           $cachedFile = "$cacheDir/opencode-$version.zip"
           $tempFile = "$env:TEMP\opencode-$version.zip"
 
-          # Create cache directory if it doesn't exist
+          # Create cache directory
           if (-not (Test-Path $cacheDir)) {
             New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
           }
 
-          # Check if we have a cached version
+          # Use cached version or download fresh
           if ('${{ steps.cache-opencode.outputs.cache-hit }}' -eq 'true' -and (Test-Path $cachedFile)) {
             Write-Host "✓ Using cached opencode v$version"
             Copy-Item $cachedFile $tempFile
           } else {
-            # Function to download with retry
-            function Download-WithRetry {
-              param($Url, $OutFile, $MaxRetries = 3)
-              
-              for ($i = 1; $i -le $MaxRetries; $i++) {
-                try {
-                  if ($i -eq 1) { Write-Host "Downloading opencode v$version..." }
-                  Invoke-WebRequest -Uri $Url -OutFile $OutFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300 2>&1 | Out-Null
-                  return $true
-                } catch {
-                  if ($i -eq $MaxRetries) {
-                    throw "Failed to download after $MaxRetries attempts: $_"
-                  }
-                  Write-Host "::warning::Download attempt $i failed, retrying..."
-                  Start-Sleep -Seconds 5
+            Write-Host "Downloading opencode v$version..."
+            $maxRetries = 3
+            for ($i = 1; $i -le $maxRetries; $i++) {
+              try {
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UserAgent 'Chocolatey-Updater' -TimeoutSec 300
+                break
+              } catch {
+                if ($i -eq $maxRetries) {
+                  throw "Failed to download after $maxRetries attempts: $_"
                 }
+                Write-Host "::warning::Download attempt $i failed, retrying..."
+                Start-Sleep -Seconds 5
               }
-              return $false
             }
-
-            # Download fresh copy
-            if (-not (Download-WithRetry -Url $downloadUrl -OutFile $tempFile)) {
-              exit 1
-            }
-
-            # Cache the downloaded file
             Copy-Item $tempFile $cachedFile
           }
 
@@ -176,7 +166,7 @@ jobs:
             throw "Downloaded file is missing or empty"
           }
 
-          # Test if it's a valid zip
+          # Validate zip integrity
           try {
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $zip = [System.IO.Compression.ZipFile]::OpenRead($tempFile)
@@ -185,8 +175,9 @@ jobs:
             throw "Downloaded file is not a valid zip: $_"
           }
 
+          # Calculate checksum
           Write-Host "Calculating checksum..."
-          $checksum = Get-FileHash -Path $tempFile -Algorithm SHA256 | Select-Object -ExpandProperty Hash
+          $checksum = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash
           Remove-Item $tempFile -Force
 
           # Update nuspec
@@ -195,92 +186,128 @@ jobs:
           $nuspec.package.metadata.releaseNotes = "https://github.com/anomalyco/opencode/releases/tag/v$version"
           $nuspec.Save('opencode.nuspec')
 
-          # Update install script with more robust regex
+          # Update install script checksum
           $installScript = Get-Content 'tools\chocolateyinstall.ps1' -Raw
           $installScript = $installScript -replace "checksum64\s*=\s*'([A-F0-9]{64}|PLACEHOLDER_CHECKSUM)'", "checksum64     = '$checksum'"
           Set-Content -Path 'tools\chocolateyinstall.ps1' -Value $installScript -NoNewline
 
-          Write-Host "✓ Package updated to v$version"
+          Write-Host "✓ Package updated to v$version (checksum: $($checksum.Substring(0,16))...)"
 
-      - name: Install Chocolatey and test package
+      - name: Setup Chocolatey
         if: steps.check.outputs.needs_release == 'true'
         shell: pwsh
         run: |
-          # Check if Chocolatey is already installed (GitHub runners usually have it)
           if (Get-Command choco -ErrorAction SilentlyContinue) {
             Write-Host "✓ Chocolatey already available"
-            choco feature enable -n allowGlobalConfirmation 2>&1 | Out-Null
           } else {
             Write-Host "Installing Chocolatey..."
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Null
-            choco feature enable -n allowGlobalConfirmation 2>&1 | Out-Null
+            iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
             Write-Host "✓ Chocolatey installed"
           }
+          
+          choco feature enable -n allowGlobalConfirmation
+          if ($LASTEXITCODE -ne 0) { throw "Failed to enable allowGlobalConfirmation" }
 
-          # Ensure dependencies are available (check cache first)
+      - name: Install dependencies
+        if: steps.check.outputs.needs_release == 'true'
+        shell: pwsh
+        run: |
           @('ripgrep', 'fzf', 'unzip') | ForEach-Object {
             $libPath = "C:\ProgramData\chocolatey\lib\$_"
             if (Test-Path $libPath) {
               Write-Host "✓ $_ available (cached)"
             } else {
-              Write-Host "Installing dependency: $_"
-              choco install $_ -y --limit-output 2>&1 | Out-Null
+              Write-Host "Installing $_..."
+              choco install $_ -y --limit-output
+              if ($LASTEXITCODE -ne 0) { throw "Failed to install $_" }
+              Write-Host "✓ $_ installed"
             }
           }
 
-          # Build package quietly
+      - name: Build package
+        if: steps.check.outputs.needs_release == 'true'
+        shell: pwsh
+        run: |
           Write-Host "Building package..."
-          choco pack --yes 2>&1 | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Package build failed" }
-
-          # Store package name for cleanup
+          $output = choco pack 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Package build failed:"
+            Write-Host $output
+            throw "choco pack failed with exit code $LASTEXITCODE"
+          }
+          
           $packageFile = "opencode.${{ steps.check.outputs.latest_version }}.nupkg"
-          "package_file=$packageFile" >> $env:GITHUB_OUTPUT
+          if (-not (Test-Path $packageFile)) {
+            throw "Expected package file not found: $packageFile"
+          }
+          
           Write-Host "✓ Package built: $packageFile"
 
-          # Install package quietly
+      - name: Test package installation
+        if: steps.check.outputs.needs_release == 'true'
+        shell: pwsh
+        run: |
           Write-Host "Testing package installation..."
-          choco install opencode -y -s . --force --limit-output 2>&1 | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Package installation failed" }
+          $output = choco install opencode -y -s . --force 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Package installation failed:"
+            Write-Host $output
+            throw "choco install failed with exit code $LASTEXITCODE"
+          }
 
-          # Verify installation
+          # Verify installed version
           $installedVersion = opencode --version 2>&1
-          $versionPattern = '(?:v|version\s*)?(\d+\.\d+\.\d+(?:\.\d+)?)'
-          if ($installedVersion -match $versionPattern) {
+          if ($installedVersion -match '(\d+\.\d+\.\d+)') {
             $extractedVersion = $matches[1]
-            if ($extractedVersion -ne '${{ steps.check.outputs.latest_version }}') {
-              throw "Version verification failed: expected ${{ steps.check.outputs.latest_version }}, got $extractedVersion"
+            $expectedVersion = '${{ steps.check.outputs.latest_version }}'
+            if ($extractedVersion -ne $expectedVersion) {
+              throw "Version mismatch: expected $expectedVersion, got $extractedVersion"
             }
             Write-Host "✓ Package test passed (v$extractedVersion)"
           } else {
-            throw "Could not extract version from output: $installedVersion"
+            throw "Could not extract version from: $installedVersion"
           }
 
       - name: Check if version already published
-        if: steps.check.outputs.needs_release == 'true'
+        if: steps.check.outputs.needs_release == 'true' && inputs.skip_published_check != true
         id: check_published
         shell: pwsh
         run: |
+          $version = "${{ steps.check.outputs.latest_version }}"
+          
+          # Actually try to download the package, not just check metadata
+          # The OData API can show a version exists before the CDN has the file
+          Write-Host "Verifying if v$version is actually downloadable from Chocolatey CDN..."
+          
           try {
-            $packageInfo = choco search opencode --exact --source=https://community.chocolatey.org/api/v2/ --limit-output 2>&1 | Out-String
-            $publishedVersion = ($packageInfo -split '\|')[1]
+            # This URL returns the actual nupkg file - if it 404s, the package isn't really there
+            $testUrl = "https://community.chocolatey.org/api/v2/package/opencode/$version"
+            $response = Invoke-WebRequest -Uri $testUrl -Method GET -TimeoutSec 30 -MaximumRedirection 5
             
-            if ($publishedVersion -eq '${{ steps.check.outputs.latest_version }}') {
-              Write-Host "::notice::Version ${{ steps.check.outputs.latest_version }} already published"
+            # If we get here without error, the package is actually downloadable
+            if ($response.StatusCode -eq 200 -and $response.Content.Length -gt 1000) {
+              Write-Host "✓ Version $version is confirmed downloadable (size: $($response.Content.Length) bytes)"
               "already_published=true" >> $env:GITHUB_OUTPUT
+              "publish_reason=Version $version already exists and is downloadable" >> $env:GITHUB_OUTPUT
             } else {
-              Write-Host "Version ${{ steps.check.outputs.latest_version }} not yet published"
+              Write-Host "::warning::Got response but content seems invalid (status: $($response.StatusCode), size: $($response.Content.Length))"
               "already_published=false" >> $env:GITHUB_OUTPUT
             }
           } catch {
-            Write-Host "::warning::Could not check published version, assuming not published"
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            if ($statusCode -eq 404) {
+              Write-Host "Package v$version not found on CDN (404) - needs publishing"
+            } else {
+              Write-Host "::warning::CDN check failed (status: $statusCode): $($_.Exception.Message)"
+              Write-Host "::warning::Will attempt to publish anyway"
+            }
             "already_published=false" >> $env:GITHUB_OUTPUT
           }
 
       - name: Commit and tag
-        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true'
+        if: steps.check.outputs.needs_release == 'true' && inputs.dry_run != true
         shell: pwsh
         run: |
           $version = "${{ steps.check.outputs.latest_version }}"
@@ -288,44 +315,46 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Check if files actually changed
-          if (-not (git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1)) {
+          # Check if files changed
+          $hasChanges = (git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1; $LASTEXITCODE -ne 0)
+          
+          if ($hasChanges) {
             Write-Host "Committing changes..."
-            git add opencode.nuspec tools/chocolateyinstall.ps1 2>&1 | Out-Null
-            git commit -m "chore: update opencode to v$version" 2>&1 | Out-Null
+            git add opencode.nuspec tools/chocolateyinstall.ps1
+            git commit -m "chore: update opencode to v$version"
             
-            # Check if tag already exists
-            if (git tag -l "v$version") {
-              Write-Host "::warning::Tag v$version already exists, deleting..."
-              git tag -d "v$version" 2>&1 | Out-Null
-              git push origin :refs/tags/"v$version" 2>&1 | Out-Null
+            # Handle existing tag
+            $tagExists = git tag -l "v$version"
+            if ($tagExists) {
+              Write-Host "::warning::Tag v$version already exists, recreating..."
+              git tag -d "v$version"
+              git push origin ":refs/tags/v$version" 2>&1 | Out-Null
             }
-            git tag -a "v$version" -m "Release v$version" 2>&1 | Out-Null
+            git tag -a "v$version" -m "Release v$version"
 
-            # Push with retry and conflict handling
+            # Push with retry
             $maxRetries = 3
             for ($i = 1; $i -le $maxRetries; $i++) {
-              try {
-                git push origin main 2>&1 | Out-Null
-                git push origin "v$version" 2>&1 | Out-Null
+              $pushOutput = git push origin main 2>&1
+              if ($LASTEXITCODE -eq 0) {
+                git push origin "v$version"
                 Write-Host "✓ Changes pushed to repository"
                 break
-              } catch {
-                if ($i -eq $maxRetries) {
-                  Write-Host "::error::Failed to push after $maxRetries attempts"
-                  exit 1
-                }
-                Write-Host "::warning::Push failed, retrying..."
-                git pull --rebase origin main 2>&1 | Out-Null
-                Start-Sleep -Seconds 2
               }
+              if ($i -eq $maxRetries) {
+                Write-Host "::error::Failed to push after $maxRetries attempts: $pushOutput"
+                exit 1
+              }
+              Write-Host "::warning::Push failed, rebasing and retrying..."
+              git pull --rebase origin main
+              Start-Sleep -Seconds 2
             }
           } else {
             Write-Host "::notice::No changes detected in package files"
           }
 
       - name: Create GitHub Release
-        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true'
+        if: steps.check.outputs.needs_release == 'true' && inputs.dry_run != true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.check.outputs.latest_version }}
@@ -337,7 +366,11 @@ jobs:
           prerelease: false
 
       - name: Publish to Chocolatey
-        if: steps.check.outputs.needs_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.check.outputs.dry_run != 'true'
+        if: |
+          steps.check.outputs.needs_release == 'true' && 
+          inputs.dry_run != true &&
+          (steps.check_published.outputs.already_published != 'true' || inputs.skip_published_check == true)
+        id: publish
         shell: pwsh
         env:
           CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
@@ -348,39 +381,110 @@ jobs:
           }
 
           $version = "${{ steps.check.outputs.latest_version }}"
+          $packageFile = "opencode.$version.nupkg"
+          
+          if (-not (Test-Path $packageFile)) {
+            throw "Package file not found: $packageFile"
+          }
+
+          # Set API key
+          Write-Host "Setting Chocolatey API key..."
+          $output = choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/ 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Failed to set API key: $output"
+            throw "choco apikey failed"
+          }
 
           # Push with retry
-          Write-Host "Publishing to Chocolatey..."
+          Write-Host "Publishing $packageFile to Chocolatey..."
           $maxRetries = 3
+          $lastError = $null
+          
           for ($i = 1; $i -le $maxRetries; $i++) {
-            try {
-              choco apikey -k $env:CHOCO_API_KEY -s https://push.chocolatey.org/ 2>&1 | Out-Null
-              choco push "opencode.$version.nupkg" -s https://push.chocolatey.org/ --timeout=600 2>&1 | Out-Null
+            Write-Host "Push attempt $i of $maxRetries..."
+            $output = choco push $packageFile -s https://push.chocolatey.org/ --timeout=600 2>&1
+            
+            if ($LASTEXITCODE -eq 0) {
               Write-Host "✓ Successfully published opencode v$version to Chocolatey"
-              break
-            } catch {
-              if ($i -eq $maxRetries) {
-                throw "Failed to publish to Chocolatey after $maxRetries attempts: $_"
-              }
-              Write-Host "::warning::Publish attempt $i failed, retrying in 10 seconds..."
+              "published=true" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            
+            $lastError = $output
+            $outputStr = $output | Out-String
+            
+            # Check for "already exists" which is actually success
+            if ($outputStr -match "already exists|409|conflict") {
+              Write-Host "::notice::Package v$version already exists on Chocolatey (this is OK)"
+              "published=true" >> $env:GITHUB_OUTPUT
+              "already_existed=true" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            
+            Write-Host "::warning::Push attempt $i failed (exit code: $LASTEXITCODE):"
+            Write-Host $output
+            
+            if ($i -lt $maxRetries) {
+              Write-Host "Retrying in 10 seconds..."
               Start-Sleep -Seconds 10
             }
           }
+          
+          Write-Host "::error::Failed to publish after $maxRetries attempts"
+          Write-Host "Last error: $lastError"
+          throw "choco push failed after $maxRetries attempts"
+
+      - name: Verify publication
+        if: steps.publish.outputs.published == 'true' && steps.publish.outputs.already_existed != 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.check.outputs.latest_version }}"
+          
+          Write-Host "Waiting for CDN propagation (60 seconds)..."
+          Start-Sleep -Seconds 60
+          
+          # Verify the package is actually downloadable
+          $maxRetries = 3
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              $testUrl = "https://community.chocolatey.org/api/v2/package/opencode/$version"
+              $response = Invoke-WebRequest -Uri $testUrl -Method GET -TimeoutSec 30
+              
+              if ($response.StatusCode -eq 200 -and $response.Content.Length -gt 1000) {
+                Write-Host "✓ Verified: v$version is now downloadable from Chocolatey CDN"
+                exit 0
+              }
+            } catch {
+              Write-Host "::warning::Verification attempt $i failed: $_"
+            }
+            
+            if ($i -lt $maxRetries) {
+              Write-Host "Waiting 30 more seconds for CDN propagation..."
+              Start-Sleep -Seconds 30
+            }
+          }
+          
+          Write-Host "::warning::Could not verify package availability - CDN may still be propagating"
+          Write-Host "::warning::Package should be available within 30 minutes"
 
       - name: Cleanup on failure
         if: failure()
         shell: pwsh
         run: |
-          # Clean up any built packages
           Get-ChildItem -Path . -Filter "*.nupkg" | Remove-Item -Force -ErrorAction SilentlyContinue
           Write-Host "Cleaned up build artifacts"
 
       - name: Discord Notification
-        if: steps.check.outputs.needs_release == 'true' && steps.check.outputs.dry_run != 'true' && success()
+        if: steps.check.outputs.needs_release == 'true' && inputs.dry_run != true && success()
         shell: pwsh
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          if (-not $env:DISCORD_WEBHOOK_URL) {
+            Write-Host "::notice::Discord webhook not configured, skipping notification"
+            exit 0
+          }
+          
           $version = "${{ steps.check.outputs.latest_version }}"
 
           $payload = @{
@@ -391,21 +495,9 @@ jobs:
                 description = "Successfully published OpenCode v$version to Chocolatey"
                 color = 65280
                 fields = @(
-                  @{
-                    name = "Version"
-                    value = "v$version"
-                    inline = $true
-                  }
-                  @{
-                    name = "Package"
-                    value = "[View on Chocolatey](https://community.chocolatey.org/packages/opencode/$version)"
-                    inline = $true
-                  }
-                  @{
-                    name = "Changelog"
-                    value = "[View Release](https://github.com/anomalyco/opencode/releases/tag/v$version)"
-                    inline = $true
-                  }
+                  @{ name = "Version"; value = "v$version"; inline = $true }
+                  @{ name = "Package"; value = "[View on Chocolatey](https://community.chocolatey.org/packages/opencode/$version)"; inline = $true }
+                  @{ name = "Changelog"; value = "[View Release](https://github.com/anomalyco/opencode/releases/tag/v$version)"; inline = $true }
                 )
                 timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
               }
@@ -419,45 +511,54 @@ jobs:
             Write-Host "::warning::Failed to send Discord notification: $_"
           }
 
-      - name: Summary and Notifications
+      - name: Summary
         if: always()
         shell: pwsh
         run: |
           $needsRelease = "${{ steps.check.outputs.needs_release }}"
           $currentVersion = "${{ steps.check.outputs.current_version }}"
           $latestVersion = "${{ steps.check.outputs.latest_version }}"
-          $dryRun = "${{ steps.check.outputs.dry_run }}"
+          $dryRun = "${{ inputs.dry_run }}"
+          $skipCheck = "${{ inputs.skip_published_check }}"
+          $alreadyPublished = "${{ steps.check_published.outputs.already_published }}"
+          $published = "${{ steps.publish.outputs.published }}"
 
           $summary = @"
           ## Auto-Release Summary
 
-          - **Current Version:** $currentVersion
-          - **Latest Version:** $latestVersion
-          - **Needs Release:** $needsRelease
-          - **Dry Run:** $dryRun
-          - **Status:** ${{ job.status }}
+          | Property | Value |
+          |----------|-------|
+          | Current Version | $currentVersion |
+          | Latest Version | $latestVersion |
+          | Needs Release | $needsRelease |
+          | Dry Run | $dryRun |
+          | Skip Published Check | $skipCheck |
+          | Already Published | $alreadyPublished |
+          | Published This Run | $published |
+          | Status | ${{ job.status }} |
           "@
 
           if ($needsRelease -eq 'true') {
             if ($dryRun -eq 'true') {
-              $summary += "`n`n✅ DRY RUN: Would have released opencode v$latestVersion"
+              $summary += "`n`n✅ **DRY RUN**: Would have released opencode v$latestVersion"
             } elseif ('${{ job.status }}' -eq 'success') {
-              $summary += "`n`n✅ Successfully auto-released opencode v$latestVersion"
+              if ($published -eq 'true') {
+                $summary += "`n`n✅ **Successfully published** opencode v$latestVersion to Chocolatey"
+              } elseif ($alreadyPublished -eq 'true') {
+                $summary += "`n`nℹ️ **Skipped publish**: v$latestVersion already available on Chocolatey"
+              }
             } else {
-              $summary += "`n`n❌ Failed to auto-release opencode v$latestVersion"
+              $summary += "`n`n❌ **Failed** to release opencode v$latestVersion"
             }
           } else {
-            $summary += "`n`nℹ️ No release needed - already at latest version"
+            $summary += "`n`nℹ️ **No release needed** - already at latest version"
           }
 
-          # Write to job summary
           $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
-          # Also output as notice
+          # Console output
           if ($needsRelease -eq 'true' -and '${{ job.status }}' -eq 'success' -and $dryRun -ne 'true') {
-            Write-Host "::notice::✅ Auto-released opencode v$latestVersion (was v$currentVersion)"
+            Write-Host "::notice::✅ Auto-released opencode v$latestVersion"
           } elseif ($needsRelease -eq 'true' -and '${{ job.status }}' -ne 'success') {
             Write-Host "::error::❌ Failed to auto-release opencode v$latestVersion"
-          } else {
-            Write-Host "::notice::ℹ️ No release needed - already at latest version v$currentVersion"
           }
