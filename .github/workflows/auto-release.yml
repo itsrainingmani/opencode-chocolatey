@@ -316,7 +316,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # Check if files changed
-          $hasChanges = (git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1; $LASTEXITCODE -ne 0)
+          git diff --quiet HEAD -- opencode.nuspec tools/chocolateyinstall.ps1
+          $hasChanges = $LASTEXITCODE -ne 0
           
           if ($hasChanges) {
             Write-Host "Committing changes..."
@@ -523,20 +524,17 @@ jobs:
           $alreadyPublished = "${{ steps.check_published.outputs.already_published }}"
           $published = "${{ steps.publish.outputs.published }}"
 
-          $summary = @"
-          ## Auto-Release Summary
-
-          | Property | Value |
-          |----------|-------|
-          | Current Version | $currentVersion |
-          | Latest Version | $latestVersion |
-          | Needs Release | $needsRelease |
-          | Dry Run | $dryRun |
-          | Skip Published Check | $skipCheck |
-          | Already Published | $alreadyPublished |
-          | Published This Run | $published |
-          | Status | ${{ job.status }} |
-          "@
+          $summary = "## Auto-Release Summary`n`n"
+          $summary += "| Property | Value |`n"
+          $summary += "|----------|-------|`n"
+          $summary += "| Current Version | $currentVersion |`n"
+          $summary += "| Latest Version | $latestVersion |`n"
+          $summary += "| Needs Release | $needsRelease |`n"
+          $summary += "| Dry Run | $dryRun |`n"
+          $summary += "| Skip Published Check | $skipCheck |`n"
+          $summary += "| Already Published | $alreadyPublished |`n"
+          $summary += "| Published This Run | $published |`n"
+          $summary += "| Status | ${{ job.status }} |"
 
           if ($needsRelease -eq 'true') {
             if ($dryRun -eq 'true') {
