@@ -9,32 +9,31 @@
     <authors>anomaly</authors>
     <projectUrl>https://opencode.ai/</projectUrl>
     <iconUrl>https://opencode.ai/favicon.svg</iconUrl>
-    <copyright>2025 opencode</copyright>
+    <copyright>2026 opencode</copyright>
     <licenseUrl>https://github.com/anomalyco/opencode/blob/dev/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <projectSourceUrl>https://github.com/anomalyco/opencode</projectSourceUrl>
     <docsUrl>https://opencode.ai/docs/</docsUrl>
     <bugTrackerUrl>https://github.com/anomalyco/opencode/issues</bugTrackerUrl>
     <tags>opencode ai coding terminal tui assistant development productivity</tags>
-    <summary>AI coding agent, built for the terminal</summary>
+    <summary>Open source agent that helps you write code in your terminal, IDE, or desktop</summary>
     <description><![CDATA[
 # OpenCode
 
-[OpenCode](https://opencode.ai) is an AI coding agent built for the terminal. OpenCode is fully open source, giving you control and freedom to use any provider, any model, and any editor.
+[OpenCode](https://opencode.ai) is an open source agent that helps you write code in your terminal, IDE, or desktop.
 
 ## Features
 
-- **Native TUI**: A responsive, native, themeable terminal UI
-- **LSP enabled**: Automatically loads the right LSPs for the LLM
-- **Multi-session**: Start multiple agents in parallel on the same project
-- **Share links**: Share a link to any session for reference or to debug
-- **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
-- **Any model**: 75+ LLM providers through [Models.dev](https://models.dev), including local models
-- **Any editor**: OpenCode runs in your terminal, pair it with any IDE
+[*] **LSP enabled**: Automatically loads the right LSPs for the LLM
+[*] **Multi-session**: Start multiple agents in parallel on the same project
+[*] **Share links**: Share a link to any session for reference or to debug
+[*] **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
+[*] **Any model**: 75+ LLM providers through [Models.dev](https://models.dev), including local models
+[*] **Any editor**: Available as a terminal interface, desktop app, and IDE extension
 
 ### The open source AI coding agent
 
-- With over **30,000** GitHub stars, **300** contributors, and almost **4,000** commits, OpenCode is used and trusted by over **300,000** developers every month.
+- With over **50,000** GitHub stars, **500** contributors, and almost **6,500** commits, OpenCode is used and trusted by over **650,000** developers every month.
 
 ### Built for privacy first
 
@@ -45,7 +44,7 @@
 After installing via Chocolatey, you can start using opencode by running in your terminal of choice:
 
 ```
-> opencode
+$ opencode
 ```
 
 ## Configure
@@ -54,30 +53,28 @@ With OpenCode you can use any LLM provider by configuring their API keys.
 
 If you are new to using LLM providers, we recommend using [OpenCode Zen](https://opencode.ai/docs/zen). It’s a curated list of models that have been tested and verified by the OpenCode team.
 
-Run `opencode auth login`, select opencode, and head to [opencode.ai/auth](https://opencode.ai/auth).
+Run the `/connect` command in the TUI, select opencode, and head to [opencode.ai/auth](https://opencode.ai/auth).
 
 Sign in, add your billing details, and copy your API key.
 
 Paste your API key.
 
 ```shell
-> opencode auth login
-
-┌  Add credential
+┌  API Key
 │
-◇  Select provider
-│  opencode
 │
-●  Create an api key at https://opencode.ai/auth
-│
-◆  Enter your API key
-│  _
-└
+└ enter
 ```
 
 Alternatively, you can select one of the other providers. [Learn more](https://opencode.ai/docs/providers#directory).
 
 For more information, visit the [official documentation](https://opencode.ai/docs/).
+
+## Access reliable optimized models for coding agents
+
+Zen gives you access to a handpicked set of AI models that OpenCode has tested and benchmarked specifically for coding agents. No need to worry about inconsistent performance and quality across providers, use validated models that work.
+
+[Learn about Zen](https://opencode.ai/zen)
 ]]></description>
     <releaseNotes>https://github.com/anomalyco/opencode/releases/tag/v1.1.8</releaseNotes>
     <dependencies>
