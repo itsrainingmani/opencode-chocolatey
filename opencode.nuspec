@@ -16,28 +16,41 @@
     <docsUrl>https://opencode.ai/docs/</docsUrl>
     <bugTrackerUrl>https://github.com/anomalyco/opencode/issues</bugTrackerUrl>
     <tags>opencode ai coding terminal tui assistant development productivity</tags>
-    <summary>Open source agent that helps you write code in your terminal, IDE, or desktop</summary>
+    <summary>The open source AI coding agent</summary>
     <description><![CDATA[
 # OpenCode
 
+**The open source AI coding agent**
+
+Free models included or connect any model from any provider,
+including Claude, GPT, Gemini and more.
+
+<video controls autoplay playsinline loop muted preload>
+  <source src="https://opencode.ai/_build/assets/opencode-min-CiEsORKQ.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+## What is OpenCode?
+
 [OpenCode](https://opencode.ai) is an open source agent that helps you write code in your terminal, IDE, or desktop.
 
-## Features
+[\*] **LSP enabled**: Automatically loads the right LSPs for the LLM
+[\*] **Multi-session**: Start multiple agents in parallel on the same project
+[\*] **Share links**: Share a link to any session for reference or to debug
+[\*] **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
+[\*] **ChatGPT Plus/Pro**: Log in with OpenAI to use your ChatGPT Plus or Pro account
+[\*] **Any model**: 75+ LLM providers through [Models.dev](https://models.dev), including local models
+[\*] **Any editor**: Available as a terminal interface, desktop app, and IDE extension
 
-[*] **LSP enabled**: Automatically loads the right LSPs for the LLM
-[*] **Multi-session**: Start multiple agents in parallel on the same project
-[*] **Share links**: Share a link to any session for reference or to debug
-[*] **Claude Pro**: Log in with Anthropic to use your Claude Pro or Max account
-[*] **Any model**: 75+ LLM providers through [Models.dev](https://models.dev), including local models
-[*] **Any editor**: Available as a terminal interface, desktop app, and IDE extension
+[Read docs](https://opencode.ai/docs)
 
 ### The open source AI coding agent
 
-- With over **50,000** GitHub stars, **500** contributors, and almost **6,500** commits, OpenCode is used and trusted by over **650,000** developers every month.
+[\*] With over **70,000** GitHub stars, **500** contributors, and almost **7,000** commits, OpenCode is used and trusted by over **650,000** developers every month.
 
 ### Built for privacy first
 
-- OpenCode does not store any of your code or context data, so that it can operate in privacy sensitive environments. Learn more about [privacy](https://opencode.ai/docs/enterprise/).
+[\*] OpenCode does not store any of your code or context data, so that it can operate in privacy sensitive environments. Learn more about [privacy](https://opencode.ai/docs/enterprise/).
 
 ## Usage
 
@@ -60,7 +73,7 @@ Sign in, add your billing details, and copy your API key.
 Paste your API key.
 
 ```shell
-┌  API Key
+┌ API Key
 │
 │
 └ enter
