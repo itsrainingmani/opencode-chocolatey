@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>opencode</id>
-    <version>1.2.1</version>
+    <version>1.2.2</version>
     <packageSourceUrl>https://github.com/itsrainingmani/opencode-chocolatey</packageSourceUrl>
     <owners>itsrainingmani</owners>
     <title>opencode</title>
@@ -86,7 +86,7 @@ Zen gives you access to a handpicked set of AI models that OpenCode has tested a
 
 [Learn about Zen](https://opencode.ai/zen)
 ]]></description>
-    <releaseNotes>https://github.com/anomalyco/opencode/releases/tag/v1.2.1</releaseNotes>
+    <releaseNotes>https://github.com/anomalyco/opencode/releases/tag/v1.2.2</releaseNotes>
     <dependencies>
       <dependency id="unzip" />
       <dependency id="ripgrep" />
