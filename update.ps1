@@ -170,9 +170,14 @@ try {
     
     # Replace the checksum (looking for either PLACEHOLDER_CHECKSUM or an actual checksum)
     $installScript = $installScript -replace "checksum64\s*=\s*'([A-F0-9]{64}|PLACEHOLDER_CHECKSUM)'", "checksum64     = '$checksum'"
-    
+
+    # Replace the version placeholder in the URL so the published nupkg contains a fully
+    # resolved, static URL. This allows `choco download --internalize` to fetch the asset
+    # at scan time without hitting a 404 caused by an unresolved PowerShell variable.
+    $installScript = $installScript -replace 'releases/download/v[^/]+/opencode', "releases/download/v$latestVersion/opencode"
+
     Set-Content -Path $installScriptPath -Value $installScript -NoNewline
-    Write-Log "Updated checksum in chocolateyinstall.ps1" "Success"
+    Write-Log "Updated version and checksum in chocolateyinstall.ps1" "Success"
     
     # Auto-commit if requested
     if ($AutoCommit) {
